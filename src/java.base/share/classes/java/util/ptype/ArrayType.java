@@ -1,0 +1,57 @@
+package java.util.ptype;
+
+import java.util.Objects;
+
+/**
+ * Represents an array type.
+ */
+public non-sealed interface ArrayType extends Arg {
+
+    /**
+     * Gets the component type of this array type.
+     *
+     * @return the component type
+     */
+    Arg componentType();
+
+    /**
+     * Creates an {@link ArrayType} from the given component type.
+     *
+     * @param componentTypeArgs the component type
+     * @return the {@link ArrayType}
+     */
+    static ArrayType of(Arg componentTypeArgs) {
+        return new ArrayType() {
+
+            @Override
+            public void appendTo(StringBuilder builder) {
+                Objects.requireNonNull(builder);
+                componentTypeArgs.appendTo(builder);
+                builder.append("[]");
+            }
+
+            @Override
+            public boolean isAssignable(Arg actual) {
+                Objects.requireNonNull(actual);
+                return switch (actual) {
+                    case ArrayType arrayType -> componentTypeArgs.isAssignable(arrayType.componentType());
+                    default -> false;
+//                    case ClassType _, InnerClassType _, Intersection _, ParameterizedType _, RawType _, Wildcard _ ->
+//                        false;
+                };
+            }
+
+            @Override
+            public Arg componentType() {
+                return componentTypeArgs;
+            }
+
+            @Override
+            public String toString() {
+                return Arg.toString(this);
+            }
+
+        };
+    }
+
+}

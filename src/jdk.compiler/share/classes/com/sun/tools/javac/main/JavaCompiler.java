@@ -322,6 +322,10 @@ public class JavaCompiler {
      */
     protected TransTypes transTypes;
 
+    /** The type reifier.
+     */
+    protected TransParameterizedTypes transParameterizedTypes;
+
     /** The syntactic sugar desweetener.
      */
     protected Lower lower;
@@ -418,6 +422,7 @@ public class JavaCompiler {
         gen = Gen.instance(context);
         flow = Flow.instance(context);
         transTypes = TransTypes.instance(context);
+        transParameterizedTypes = TransParameterizedTypes.instance(context);
         lower = Lower.instance(context);
         annotate = Annotate.instance(context);
         types = Types.instance(context);
@@ -1511,6 +1516,7 @@ public class JavaCompiler {
             Set<Env<AttrContext>> dependencies = new LinkedHashSet<>();
             protected boolean hasLambdas;
             protected boolean hasPatterns;
+            protected boolean hasTypeParams;
             @Override
             public void visitClassDef(JCClassDecl node) {
                 Type st = types.supertype(node.sym.type);
@@ -1610,6 +1616,15 @@ public class JavaCompiler {
                 }
                 return;
             }
+
+            if (shouldStop(CompileState.TRANSPARAMETERIZEDTYPES))
+                return;
+
+            if (scanner.hasTypeParams) {
+                env.tree = TransParameterizedTypes.instance(context).translateTopLevelClass(env, env.tree, localMake);
+            }
+
+            compileStates.put(env, CompileState.TRANSPARAMETERIZEDTYPES);
 
             if (shouldStop(CompileState.TRANSTYPES))
                 return;
@@ -1876,6 +1891,7 @@ public class JavaCompiler {
         gen = null;
         flow = null;
         transTypes = null;
+        transParameterizedTypes = null;
         lower = null;
         annotate = null;
         types = null;
