@@ -3,14 +3,13 @@ package com.sun.tools.javac.comp;
 import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symtab;
-import com.sun.tools.javac.code.TypeTag;
+import com.sun.tools.javac.code.Type;
 import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeMaker;
 import com.sun.tools.javac.tree.TreeTranslator;
 import com.sun.tools.javac.util.Context;
 import com.sun.tools.javac.util.List;
-
-import java.util.Set;
+import com.sun.tools.javac.util.Names;
 
 public final class TransParameterizedTypes extends TreeTranslator {
 
@@ -21,6 +20,8 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
     private TreeMaker make;
     private Symtab syms;
+    private Names names;
+    private Type argType;
     private Env<AttrContext> env = null;
 
     /**
@@ -38,41 +39,29 @@ public final class TransParameterizedTypes extends TreeTranslator {
         context.put(typeReifierKey, this);
         make = TreeMaker.instance(context);
         syms = Symtab.instance(context);
+        names = Names.instance(context);
+        argType = new Type.ClassType(Type.noType, List.nil(), null);
+        argType.tsym = new Symbol.ClassSymbol(
+            Flags.PUBLIC | Flags.INTERFACE | Flags.ABSTRACT,
+            names.fromString("Arg"),
+            argType,
+            new Symbol.PackageSymbol(
+                names.fromString("java.util.ptype"),
+                null
+            )
+        );
     }
 
     @Override
     public void visitClassDef(JCTree.JCClassDecl tree) {
-        tree.mods = translate(tree.mods);
-        tree.typarams = translateTypeParams(tree.typarams);
-        tree.extending = translate(tree.extending);
-        tree.implementing = translate(tree.implementing);
-        tree.defs = translate(tree.defs);
-
-//        var table = tree.name.table;
-//        var flags = Flags.STATIC | Flags.PUBLIC | Flags.FINAL;
-//        var fieldName = table.fromString("foo");
-//        var type = syms.intType;
-//        var init = make.Literal(TypeTag.INT, 42).setType(syms.intType.constType(42));
-//
-//        var field = make.VarDef(
-//            make.Modifiers(flags),
-//            fieldName,
-//            make.Type(type),
-//            init
-//        );
-//        var sym = new Symbol.VarSymbol(flags, fieldName, type, tree.sym);
-//        field.sym = sym;
-//        field.type = type;
-//        tree.sym.members_field.enter(sym);
-//        tree.defs = tree.defs.append(field);
-
+        generateBaseArgField(tree);
 
 //        var table = tree.name.table;
 //        var returnType = syms.intType;
 //        var flags = Flags.STATIC | Flags.PUBLIC;
 //        var methodName = table.fromString("foo");
 //
-//        var returnValue = make.Literal(TypeTag.INT, 42).setType(syms.intType.constType(42));
+//        var returnValue = make.Literal(42);
 //        var returnStatement = make.Return(returnValue);
 //        var method = make.MethodDef(
 //            make.Modifiers(flags),
@@ -90,22 +79,27 @@ public final class TransParameterizedTypes extends TreeTranslator {
 //        var sym = new Symbol.MethodSymbol(flags, methodName, methodType, tree.sym);
 //        method.sym = sym;
 //        tree.sym.members_field.enter(sym);
-//        tree.defs = defs.append(method);
-
+//        tree.defs = tree.defs.append(method);
 
         result = tree;
     }
 
-    private void generateArgField(JCTree.JCClassDecl clazz, JCTree.JCClassDecl owner) {
-//        var modifierFlags = Flags.PRIVATE | Flags.FINAL;
-//        var modifiers = make.Modifiers(modifierFlags);
-//        var fieldName = computeArgName(owner);
-//        var symbol = new Symbol.VarSymbol();
-//        var field = make.VarDef(
-//            modifiers,
-//            fieldName,
-//
-//        );
+    private JCTree.JCVariableDecl generateBaseArgField(JCTree.JCClassDecl tree) {
+        var fieldFlags = Flags.PRIVATE;
+        var fieldName = names.fromString(computeArgName(tree));
+        var field = make.VarDef(
+            make.Modifiers(fieldFlags),
+            fieldName,
+            make.Type(argType),
+            null // init done in constructor
+        );
+        var fieldSym = new Symbol.VarSymbol(fieldFlags, fieldName, argType, tree.sym);
+        field.sym = fieldSym;
+        field.type = argType;
+
+        tree.sym.members_field.enter(fieldSym);
+        tree.defs = tree.defs.append(field);
+        return field;
     }
 
     private String computeArgName(JCTree.JCClassDecl owner) {
@@ -113,8 +107,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var name = owner.name.toString();
         return "typeArgs$" + pkg + "$$" + name;
     }
-
-
 
     public JCTree translateTopLevelClass(Env<AttrContext> env, JCTree cdef, TreeMaker make) {
         try {

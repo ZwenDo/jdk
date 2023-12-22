@@ -1578,6 +1578,12 @@ public class JavaCompiler {
                 hasPatterns |= tree.patternSwitch;
                 super.visitSwitchExpression(tree);
             }
+
+            @Override
+            public void visitTypeParameter(JCTree.JCTypeParameter tree) {
+                hasTypeParams = true;
+                super.visitTypeParameter(tree);
+            }
         }
         ScanNested scanner = new ScanNested();
         scanner.scan(env.tree);
@@ -1621,6 +1627,7 @@ public class JavaCompiler {
                 return;
 
             if (scanner.hasTypeParams) {
+                printNote("Hello");
                 env.tree = TransParameterizedTypes.instance(context).translateTopLevelClass(env, env.tree, localMake);
             }
 
