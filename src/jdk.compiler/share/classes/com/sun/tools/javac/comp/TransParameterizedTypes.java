@@ -1,9 +1,11 @@
 package com.sun.tools.javac.comp;
 
+import com.sun.source.tree.Tree;
 import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symtab;
 import com.sun.tools.javac.code.Type;
+import com.sun.tools.javac.jvm.Target;
 import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeMaker;
 import com.sun.tools.javac.tree.TreeTranslator;
@@ -19,9 +21,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
     private static final Context.Key<TransParameterizedTypes> typeReifierKey = new Context.Key<>();
 
     private TreeMaker make;
-    private Symtab syms;
-    private Names names;
-    private Type argType;
+    private final Symtab syms;
+    private final Names names;
+    private final Type argType;
+    private final Target target;
     private Env<AttrContext> env = null;
 
     /**
@@ -40,6 +43,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         make = TreeMaker.instance(context);
         syms = Symtab.instance(context);
         names = Names.instance(context);
+        target = Target.instance(context);
         argType = new Type.ClassType(Type.noType, List.nil(), null);
         argType.tsym = new Symbol.ClassSymbol(
             Flags.PUBLIC | Flags.INTERFACE | Flags.ABSTRACT,
@@ -54,7 +58,36 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
     @Override
     public void visitClassDef(JCTree.JCClassDecl tree) {
-        generateBaseArgField(tree);
+        // generate the base arg field
+        if (!tree.name.contentEquals("Foo")) {
+            return;
+        }
+        var baseField = generateBaseArgField(tree);
+        tree.defs.forEach(member -> {
+            if (member.getKind() != Tree.Kind.METHOD) {
+                return;
+            }
+
+            var method = (JCTree.JCMethodDecl) member;
+            if (!method.getName().equals(names.init)) {
+                return;
+            }
+
+            var oldPos = method.pos;
+            var extraArgParam = make.at(method.pos).Param(
+                names.fromString("0" + target.syntheticNameChar() + "arg"),
+                argType,
+                method.sym
+            );
+            extraArgParam.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
+            make.at(oldPos);
+
+            method.params = method.params.append(extraArgParam);
+            var mtype = (Type.MethodType) method.type;
+            mtype.argtypes = mtype.argtypes.append(argType);
+            method.sym.extraParams = method.sym.extraParams.append(extraArgParam.sym);
+        });
+
 
 //        var table = tree.name.table;
 //        var returnType = syms.intType;
@@ -103,9 +136,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
     }
 
     private String computeArgName(JCTree.JCClassDecl owner) {
-        var pkg = owner.sym.packge().name.toString().replace('.', '$');
+        var synChar = target.syntheticNameChar();
+        var pkg = owner.sym.packge().name.toString().replace('.', synChar);
         var name = owner.name.toString();
-        return "typeArgs$" + pkg + "$$" + name;
+        return "0" + synChar + "typeArgs" + synChar + pkg + synChar + synChar + name;
     }
 
     public JCTree translateTopLevelClass(Env<AttrContext> env, JCTree cdef, TreeMaker make) {

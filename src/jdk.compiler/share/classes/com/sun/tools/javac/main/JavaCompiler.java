@@ -1627,7 +1627,6 @@ public class JavaCompiler {
                 return;
 
             if (scanner.hasTypeParams) {
-                printNote("Hello");
                 env.tree = TransParameterizedTypes.instance(context).translateTopLevelClass(env, env.tree, localMake);
             }
 
