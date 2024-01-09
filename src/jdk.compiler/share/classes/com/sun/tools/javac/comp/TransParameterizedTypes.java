@@ -6,6 +6,7 @@ import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symtab;
 import com.sun.tools.javac.code.Type;
 import com.sun.tools.javac.code.TypeTag;
+import com.sun.tools.javac.code.Types;
 import com.sun.tools.javac.jvm.Target;
 import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeMaker;
@@ -28,6 +29,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
     private final Names names;
     private final Target target;
     private final Resolve resolve;
+    private final Types types;
     private Env<AttrContext> env = null;
 
     /**
@@ -48,6 +50,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         names = Names.instance(context);
         target = Target.instance(context);
         resolve = Resolve.instance(context);
+        types = Types.instance(context);
         env = Attr.instance(context).env;
     }
 
@@ -182,23 +185,51 @@ public final class TransParameterizedTypes extends TreeTranslator {
     }
 
     private JCTree.JCExpression createDefaultTypeArgs(int pos) {
-        var rawTypeOf = names.fromString("of");
-        var ident = make.Ident(rawTypeOf);
-        var rawTypeCall = make.Apply(
+        var rawTypeCall = factoryCall(
+            pos,
+            "of",
+            syms.rawTypeTypeArgs,
+            syms.rawTypeTypeArgs,
+            List.of(syms.parameterizedTypeTypeArgs)
+        );
+        var parameterizedTypeCall = factoryCall(
+            pos,
+            "of",
+            syms.parameterizedTypeTypeArgs,
+            syms.parameterizedTypeTypeArgs,
+            List.of(syms.classType, syms.argBaseType, types.makeArrayType(syms.argBaseType))
+        );
+        rawTypeCall.args = List.of(parameterizedTypeCall);
+        var nil = make.Literal(TypeTag.BOT, null).setType(syms.botType);
+        parameterizedTypeCall.args = List.of(nil, nil, nil);
+
+        return rawTypeCall;
+    }
+
+    private JCTree.JCMethodInvocation factoryCall(
+        int pos,
+        String name,
+        Type ownerType,
+        Type returnType,
+        List<Type> paramTypes
+    ) {
+        var methodName = names.fromString(name);
+        var ident = make.Ident(methodName);
+        var methodCall = make.Apply(
             List.nil(),
             ident,
-            List.of(make.Literal(TypeTag.BOT, null).setType(syms.botType))
-        ).setType(syms.rawTypeTypeArgs);
+            List.nil()
+        ).setType(returnType);
         ident.sym = resolve.resolveInternalMethod(
             new JCDiagnostic.SimpleDiagnosticPosition(pos),
             env,
-            syms.rawTypeTypeArgs,
-            rawTypeOf,
-            List.of(syms.parameterizedTypeTypeArgs),
+            ownerType,
+            methodName,
+            paramTypes,
             List.nil()
         );
         ident.type = ident.sym.type;
-        return rawTypeCall;
+        return methodCall;
     }
 
     /**
