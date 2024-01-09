@@ -11,6 +11,7 @@ import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeMaker;
 import com.sun.tools.javac.tree.TreeTranslator;
 import com.sun.tools.javac.util.Context;
+import com.sun.tools.javac.util.JCDiagnostic;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
 import com.sun.tools.javac.util.Names;
@@ -25,8 +26,8 @@ public final class TransParameterizedTypes extends TreeTranslator {
     private TreeMaker make;
     private final Symtab syms;
     private final Names names;
-    private final Type argType;
     private final Target target;
+    private final Resolve resolve;
     private Env<AttrContext> env = null;
 
     /**
@@ -46,16 +47,8 @@ public final class TransParameterizedTypes extends TreeTranslator {
         syms = Symtab.instance(context);
         names = Names.instance(context);
         target = Target.instance(context);
-        argType = new Type.ClassType(Type.noType, List.nil(), null);
-        argType.tsym = new Symbol.ClassSymbol(
-            Flags.PUBLIC | Flags.INTERFACE | Flags.ABSTRACT,
-            names.fromString("Arg"),
-            argType,
-            new Symbol.PackageSymbol(
-                names.fromString("java.util.ptype"),
-                null
-            )
-        );
+        resolve = Resolve.instance(context);
+        env = Attr.instance(context).env;
     }
 
     @Override
@@ -102,12 +95,12 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var field = make.VarDef(
             make.Modifiers(fieldFlags),
             fieldName,
-            make.Type(argType),
+            make.Type(syms.argBaseType),
             null // init is done in constructor
         );
-        var fieldSym = new Symbol.VarSymbol(fieldFlags, fieldName, argType, tree.sym);
+        var fieldSym = new Symbol.VarSymbol(fieldFlags, fieldName, syms.argBaseType, tree.sym);
         field.sym = fieldSym;
-        field.type = argType;
+        field.type = syms.argBaseType;
 
         tree.sym.members_field.enter(fieldSym);
         tree.defs = tree.defs.append(field);
@@ -132,8 +125,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 continue;
             }
 
+            var copy = copyConstructor(method);
+            var modified = appendArgToConstructorParams(method);
+
             // before modifying the constructor, we create the overload for backward compatibility
-            backwardCompatibilityOverloadConstructor(tree, method);
+            backwardCompatibilityOverloadConstructor(tree, modified, copy);
 
             // we then check whether the constructor calls another constructor
             var doesCallOverload = doesCallConstructor(method);
@@ -147,13 +143,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
         }
     }
 
-    private JCTree.JCMethodDecl backwardCompatibilityOverloadConstructor(
+    private void backwardCompatibilityOverloadConstructor(
         JCTree.JCClassDecl clazz,
-        JCTree.JCMethodDecl baseConstructor
+        JCTree.JCMethodDecl modified,
+        JCTree.JCMethodDecl copy
     ) {
-        var copy = copyConstructor(baseConstructor);
-        var modified = appendArgToConstructorParams(baseConstructor);
-
         var baseParamTypeArgs = modified.sym.type.getTypeArguments();
         List<JCTree.JCExpression> baseParamTypeArgsCopy = baseParamTypeArgs.isEmpty()
             ? List.nil()
@@ -161,12 +155,14 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         var params = new ListBuffer<JCTree.JCExpression>();
         copy.params.forEach(p -> params.add(make.Ident(p)));
-        var defaultTypeArgs = createDefaultTypeArgs();
+        var defaultTypeArgs = createDefaultTypeArgs(copy.pos);
         params.add(defaultTypeArgs);
         ((Type.MethodType) copy.type).argtypes = modified.sym.type.getTypeArguments();
         copy.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
         copy.sym.flags_field |= Flags.SYNTHETIC | Flags.MANDATED;
 
+        var ident = make.Ident(modified.sym);
+        ident.name = names._this;
         copy.body = make.at(modified.pos)
             .Block(
                 0L,
@@ -174,7 +170,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                     make.Exec(
                         make.Apply(
                             baseParamTypeArgsCopy,
-                            make.Ident(modified.sym),
+                            ident,
                             List.from(params)
                         ).setType(syms.voidType)
                     )
@@ -183,16 +179,25 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         clazz.sym.members_field.enter(copy.sym);
         clazz.defs = clazz.defs.append(copy);
-
-        return modified;
     }
 
-    private JCTree.JCExpression createDefaultTypeArgs() {
+    private JCTree.JCExpression createDefaultTypeArgs(int pos) {
+        var rawTypeOf = names.fromString("of");
+        var ident = make.Ident(rawTypeOf);
         var rawTypeCall = make.Apply(
             List.nil(),
-            make.Ident(names.fromString("java.util.ptype.RawType.of")),
+            ident,
             List.of(make.Literal(TypeTag.BOT, null).setType(syms.botType))
+        ).setType(syms.rawTypeTypeArgs);
+        ident.sym = resolve.resolveInternalMethod(
+            new JCDiagnostic.SimpleDiagnosticPosition(pos),
+            env,
+            syms.rawTypeTypeArgs,
+            rawTypeOf,
+            List.of(syms.parameterizedTypeTypeArgs),
+            List.nil()
         );
+        ident.type = ident.sym.type;
         return rawTypeCall;
     }
 
@@ -241,7 +246,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var oldPos = method.pos;
         var extraArgParam = make.at(method.pos).Param(
             names.fromString("0" + target.syntheticNameChar() + "arg"),
-            argType,
+            syms.argBaseType,
             method.sym
         );
         extraArgParam.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
@@ -249,7 +254,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         method.params = method.params.append(extraArgParam);
         var mtype = (Type.MethodType) method.type;
-        mtype.argtypes = mtype.argtypes.append(argType);
+        mtype.argtypes = mtype.argtypes.append(syms.argBaseType);
         method.sym.extraParams = method.sym.extraParams.append(extraArgParam.sym);
 
         return method;

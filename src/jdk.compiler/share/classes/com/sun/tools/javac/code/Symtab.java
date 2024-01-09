@@ -213,6 +213,9 @@ public class Symtab {
     public final Type autoCloseableType;
     public final Type trustMeType;
     public final Type lambdaMetafactory;
+    public final Type argBaseType;
+    public final Type parameterizedTypeTypeArgs;
+    public final Type rawTypeTypeArgs;
     public final Type stringConcatFactory;
     public final Type repeatableType;
     public final Type documentedType;
@@ -607,6 +610,9 @@ public class Symtab {
         trustMeType = enterClass("java.lang.SafeVarargs");
         nativeHeaderType = enterClass("java.lang.annotation.Native");
         lambdaMetafactory = enterClass("java.lang.invoke.LambdaMetafactory");
+        argBaseType = enterClass("java.util.ptype.Arg");
+        parameterizedTypeTypeArgs = enterClass("java.util.ptype.ParameterizedType");
+        rawTypeTypeArgs = enterClass("java.util.ptype.RawType");
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");
         previewFeatureType = enterClass("jdk.internal.javac.PreviewFeature");
