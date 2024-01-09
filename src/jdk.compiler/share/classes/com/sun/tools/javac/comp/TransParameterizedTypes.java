@@ -158,7 +158,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         var params = new ListBuffer<JCTree.JCExpression>();
         copy.params.forEach(p -> params.add(make.Ident(p)));
-        var defaultTypeArgs = createDefaultTypeArgs(copy.pos);
+        var defaultTypeArgs = createDefaultTypeArgs(copy.pos, clazz);
         params.add(defaultTypeArgs);
         ((Type.MethodType) copy.type).argtypes = modified.sym.type.getTypeArguments();
         copy.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
@@ -184,7 +184,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         clazz.defs = clazz.defs.append(copy);
     }
 
-    private JCTree.JCExpression createDefaultTypeArgs(int pos) {
+    private JCTree.JCExpression createDefaultTypeArgs(int pos, JCTree.JCClassDecl classDecl) {
         var rawTypeCall = factoryCall(
             pos,
             "of",
@@ -200,8 +200,18 @@ public final class TransParameterizedTypes extends TreeTranslator {
             List.of(syms.classType, syms.argBaseType, types.makeArrayType(syms.argBaseType))
         );
         rawTypeCall.args = List.of(parameterizedTypeCall);
+
+        // MyType.class call as first argument of ParameterizedType.of
+        var classFieldAccess = make.Select(
+            null,
+            names._class
+        );
+        classFieldAccess.sym = syms.getClassField(classDecl.type, types);
+        classFieldAccess.type = classFieldAccess.sym.type;
+        classFieldAccess.selected = make.Ident(classDecl.sym);
+
         var nil = make.Literal(TypeTag.BOT, null).setType(syms.botType);
-        parameterizedTypeCall.args = List.of(nil, nil, nil);
+        parameterizedTypeCall.args = List.of(classFieldAccess, nil, nil);
 
         return rawTypeCall;
     }
