@@ -216,6 +216,7 @@ public class Symtab {
     public final Type argBaseType;
     public final Type parameterizedTypeTypeArgs;
     public final Type rawTypeTypeArgs;
+    public final Type classTypeArgs;
     public final Type stringConcatFactory;
     public final Type repeatableType;
     public final Type documentedType;
@@ -613,6 +614,7 @@ public class Symtab {
         argBaseType = enterClass("java.util.ptype.Arg");
         parameterizedTypeTypeArgs = enterClass("java.util.ptype.ParameterizedType");
         rawTypeTypeArgs = enterClass("java.util.ptype.RawType");
+        classTypeArgs = enterClass("java.util.ptype.ClassType");
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");
         previewFeatureType = enterClass("jdk.internal.javac.PreviewFeature");

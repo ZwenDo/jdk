@@ -5,7 +5,6 @@ import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symtab;
 import com.sun.tools.javac.code.Type;
-import com.sun.tools.javac.code.TypeTag;
 import com.sun.tools.javac.code.Types;
 import com.sun.tools.javac.jvm.Target;
 import com.sun.tools.javac.tree.JCTree;
@@ -129,10 +128,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
 
             var copy = copyConstructor(method);
-            var modified = appendArgToConstructorParams(method);
+            prependArgToConstructorParams(method);
 
             // before modifying the constructor, we create the overload for backward compatibility
-            backwardCompatibilityOverloadConstructor(tree, modified, copy);
+            backwardCompatibilityOverloadConstructor(tree, method, copy);
 
             // we then check whether the constructor calls another constructor
             var doesCallOverload = doesCallConstructor(method);
@@ -159,7 +158,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var params = new ListBuffer<JCTree.JCExpression>();
         copy.params.forEach(p -> params.add(make.Ident(p)));
         var defaultTypeArgs = createDefaultTypeArgs(copy.pos, clazz);
-        params.add(defaultTypeArgs);
+        params.prepend(defaultTypeArgs);
         ((Type.MethodType) copy.type).argtypes = modified.sym.type.getTypeArguments();
         copy.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
         copy.sym.flags_field |= Flags.SYNTHETIC | Flags.MANDATED;
@@ -174,7 +173,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                         make.Apply(
                             baseParamTypeArgsCopy,
                             ident,
-                            List.from(params)
+                            params.toList()
                         ).setType(syms.voidType)
                     )
                 )
@@ -203,15 +202,31 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         // MyType.class call as first argument of ParameterizedType.of
         var classFieldAccess = make.Select(
-            null,
-            names._class
+            make.Ident(classDecl.sym),
+            syms.getClassField(classDecl.type, types)
         );
-        classFieldAccess.sym = syms.getClassField(classDecl.type, types);
-        classFieldAccess.type = classFieldAccess.sym.type;
-        classFieldAccess.selected = make.Ident(classDecl.sym);
 
-        var nil = make.Literal(TypeTag.BOT, null).setType(syms.botType);
-        parameterizedTypeCall.args = List.of(classFieldAccess, nil, nil);
+        // append of all type arguments wrapped in a ClassType.of call
+        var builder = new ListBuffer<JCTree.JCExpression>();
+        builder.add(classFieldAccess);
+        classDecl.sym.getTypeParameters().forEach(parameter -> {
+            var head = parameter.getBounds().head;
+            var classFieldAcc = make.Select(
+                make.Type(head),
+                syms.getClassField(head, types)
+            );
+            var call = factoryCall(
+                pos,
+                "of",
+                syms.classTypeArgs,
+                syms.classTypeArgs,
+                List.of(syms.classType)
+            );
+            call.args = List.of(classFieldAcc);
+            builder.add(call);
+        });
+
+        parameterizedTypeCall.args = builder.toList();
 
         return rawTypeCall;
     }
@@ -230,7 +245,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             ident,
             List.nil()
         ).setType(returnType);
-        ident.sym = resolve.resolveInternalMethod(
+        var sym = resolve.resolveInternalMethod(
             new JCDiagnostic.SimpleDiagnosticPosition(pos),
             env,
             ownerType,
@@ -238,6 +253,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
             paramTypes,
             List.nil()
         );
+        ident.sym = sym;
+        if (sym.isVarArgs()) {
+            methodCall.varargsElement = ((Type.ArrayType) sym.params.last().type).elemtype;
+        }
         ident.type = ident.sym.type;
         return methodCall;
     }
@@ -283,7 +302,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return treeCopy;
     }
 
-    private JCTree.JCMethodDecl appendArgToConstructorParams(JCTree.JCMethodDecl method) {
+    private void prependArgToConstructorParams(JCTree.JCMethodDecl method) {
         var oldPos = method.pos;
         var extraArgParam = make.at(method.pos).Param(
             names.fromString("0" + target.syntheticNameChar() + "arg"),
@@ -293,12 +312,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
         extraArgParam.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
         make.at(oldPos);
 
-        method.params = method.params.append(extraArgParam);
+        method.params = method.params.prepend(extraArgParam);
         var mtype = (Type.MethodType) method.type;
-        mtype.argtypes = mtype.argtypes.append(syms.argBaseType);
-        method.sym.extraParams = method.sym.extraParams.append(extraArgParam.sym);
-
-        return method;
+        mtype.argtypes = mtype.argtypes.prepend(syms.argBaseType);
+        method.sym.extraParams = method.sym.extraParams.prepend(extraArgParam.sym);
     }
 
     /**
@@ -325,18 +342,24 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return names._this.equals(calledName);
     }
 
+
+    @Override
+    public void visitMethodDef(JCTree.JCMethodDecl tree) {
+        super.visitMethodDef(tree);
+    }
+
     private void appendArgToThisCall(JCTree.JCMethodDecl constructor) {
         var instructions = constructor.body.stats;
         var call = (JCTree.JCMethodInvocation) ((JCTree.JCExpressionStatement) instructions.getFirst()).expr;
         var args = call.args;
-        call.args = args.append(make.Ident(constructor.params.last()));
+        call.args = args.prepend(make.Ident(constructor.params.getFirst()));
     }
 
     private void setFieldValue(JCTree.JCMethodDecl constructor, JCTree.JCVariableDecl field) {
         var instructions = constructor.body.stats;
         var assign = make.Assign(
             make.Ident(field.sym),
-            make.Ident(constructor.params.last().sym)
+            make.Ident(constructor.params.getFirst().sym)
         );
         // we set the field value before calling the super constructor as it is now allowed
         instructions = instructions.prepend(make.Exec(assign));
