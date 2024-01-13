@@ -78,6 +78,14 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var baseField = generateField(tree, tree.sym);
         result.put(tree.sym, baseField);
 
+        // then, optionally generate the fields for the super type
+        if (tree.extending != null && tree.extending.type.isParameterized()) {
+            var classExpression = (JCTree.JCIdent) ((JCTree.JCTypeApply) tree.extending).clazz;
+            var field = generateField(tree, classExpression.sym);
+            result.put(classExpression.sym, field);
+        }
+
+        // finally generate the fields for the implementing types
         tree.implementing.forEach(i -> {
             if (!i.type.isParameterized()) {
                 return;
@@ -91,7 +99,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
     }
 
     private JCTree.JCVariableDecl generateField(JCTree.JCClassDecl tree, Symbol superType) {
-        var fieldFlags = Flags.PRIVATE; //| Flags.FINAL;
+        var fieldFlags = Flags.PRIVATE | Flags.FINAL;
         var fieldName = names.fromString(computeArgName(superType));
         var baseField = make.VarDef(
             make.Modifiers(fieldFlags),
@@ -116,8 +124,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
     }
 
     // endregion
-
-
 
     private void rewriteMethods(JCTree.JCClassDecl tree, Map<Symbol, JCTree.JCVariableDecl> fields) {
         for (var member : tree.defs) {
