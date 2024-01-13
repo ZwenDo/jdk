@@ -16,7 +16,7 @@ import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
 import com.sun.tools.javac.util.Names;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class TransParameterizedTypes extends TreeTranslator {
@@ -72,30 +72,58 @@ public final class TransParameterizedTypes extends TreeTranslator {
     // region Base arg field generation
 
     private Map<Symbol, JCTree.JCVariableDecl> generateFields(JCTree.JCClassDecl tree) {
-        var result = new HashMap<Symbol, JCTree.JCVariableDecl>();
-        // first generate the base field
+        var result = new LinkedHashMap<Symbol, JCTree.JCVariableDecl>();
 
+        // first generate the base field
         var baseField = generateField(tree, tree.sym);
         result.put(tree.sym, baseField);
 
         // then, optionally generate the fields for the super type
-        if (tree.extending != null && tree.extending.type.isParameterized()) {
+        if (tree.extending != null && tree.extending.type.isParameterized() && isParameterizedByClass((JCTree.JCTypeApply) tree.extending)) {
             var classExpression = (JCTree.JCIdent) ((JCTree.JCTypeApply) tree.extending).clazz;
             var field = generateField(tree, classExpression.sym);
             result.put(classExpression.sym, field);
         }
 
         // finally generate the fields for the implementing types
-        tree.implementing.forEach(i -> {
-            if (!i.type.isParameterized()) {
+        tree.implementing.forEach(expression -> {
+            if (!expression.type.isParameterized()) {
                 return;
             }
-            var classExpression = (JCTree.JCIdent) ((JCTree.JCTypeApply) i).clazz;
+            var apply = (JCTree.JCTypeApply) expression;
+            if (!isParameterizedByClass(apply)) {
+                return;
+            }
+
+            var classExpression = (JCTree.JCIdent) apply.clazz;
             var field = generateField(tree, classExpression.sym);
             result.put(classExpression.sym, field);
         });
 
         return result;
+    }
+
+    /**
+     * This method returns true only if the type parameter represented by typeApply is parameterized by a type parameter
+     * declared by the current class.
+     * <p>
+     * tl;dr it avoid to generates a type arg field for cases where the type parameters are fixed e.g. Foo implements
+     * Consumer&lt;String&gt;
+     */
+    private boolean isParameterizedByClass(JCTree.JCTypeApply typeApply) {
+        for (var argument : typeApply.getTypeArguments()) {
+            if (argument instanceof JCTree.JCIdent id) {
+                if (id.sym instanceof Symbol.TypeVariableSymbol) { // if param is parameterized by the class
+                    return true;
+                }
+            } else if (argument instanceof JCTree.JCTypeApply apply) { // or if it contains a type parameterized by the class
+                if (isParameterizedByClass(apply)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private JCTree.JCVariableDecl generateField(JCTree.JCClassDecl tree, Symbol superType) {
@@ -160,7 +188,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         if (doesCallOverload) {
             appendArgToThisCall(method);
         } else { // otherwise, this constructor must set the base field
-            setFieldValue(tree, method, fields);
+            setFieldsValues(tree, method, fields);
         }
     }
 
@@ -203,14 +231,14 @@ public final class TransParameterizedTypes extends TreeTranslator {
     }
 
     private JCTree.JCExpression createDefaultTypeArgs(int pos, JCTree.JCClassDecl classDecl) {
-        var rawTypeCall = factoryCall(
+        var rawTypeCall = externalMethodInvocation(
             pos,
             "of",
             syms.rawTypeTypeArgs,
             syms.rawTypeTypeArgs,
             List.of(syms.parameterizedTypeTypeArgs)
         );
-        var parameterizedTypeCall = factoryCall(
+        var parameterizedTypeCall = externalMethodInvocation(
             pos,
             "of",
             syms.parameterizedTypeTypeArgs,
@@ -234,7 +262,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 make.Type(head),
                 syms.getClassField(head, types)
             );
-            var call = factoryCall(
+            var call = externalMethodInvocation(
                 pos,
                 "of",
                 syms.classTypeArgs,
@@ -250,7 +278,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return rawTypeCall;
     }
 
-    private JCTree.JCMethodInvocation factoryCall(
+    private JCTree.JCMethodInvocation externalMethodInvocation(
         int pos,
         String name,
         Type ownerType,
@@ -368,20 +396,49 @@ public final class TransParameterizedTypes extends TreeTranslator {
         call.args = args.prepend(make.Ident(constructor.params.getFirst()));
     }
 
-    private void setFieldValue(
+    private void setFieldsValues(
         JCTree.JCClassDecl tree,
         JCTree.JCMethodDecl constructor,
         Map<Symbol, JCTree.JCVariableDecl> fields
     ) {
         var instructions = constructor.body.stats;
-        var baseField = fields.get(tree.sym);
-        var assign = make.Assign(
-            make.Ident(baseField.sym),
-            make.Ident(constructor.params.getFirst().sym)
-        );
+
+        var buffer = new ListBuffer<JCTree.JCStatement>();
+        buffer.addAll(instructions);
+
+        fields.forEach((sym, field) -> {
+            if (tree.sym.equals(sym)) { // base field
+                var assign = make.Assign(
+                    make.Ident(field.sym),
+                    make.Ident(constructor.params.getFirst().sym)
+                );
+                buffer.prepend(make.Exec(assign));
+                return;
+            }
+
+            var factoryCall = externalMethodInvocation(
+                constructor.pos,
+                "toSuper",
+                syms.typeArgUtils,
+                syms.argBaseType,
+                List.of(syms.argBaseType, syms.classType, types.makeArrayType(syms.intType))
+            );
+
+
+            // TODO change last parameter. It will imply to modify the TypeArg API because it does not cover all cases
+            factoryCall.args = List.of(
+                make.Ident(constructor.params.getFirst().sym),
+                make.Select(
+                    make.Ident(sym),
+                    syms.getClassField(sym.type, types)
+                ),
+                make.Literal(sym.getTypeParameters().size())
+            );
+            buffer.prepend(make.Exec(factoryCall));
+        });
+
         // we set the field value before calling the super constructor as it is now allowed
-        instructions = instructions.prepend(make.Exec(assign));
-        constructor.body.stats = instructions;
+        constructor.body.stats = buffer.toList();
     }
 
     // endregion
