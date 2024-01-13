@@ -16,6 +16,9 @@ import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
 import com.sun.tools.javac.util.Names;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public final class TransParameterizedTypes extends TreeTranslator {
 
     /**
@@ -60,54 +63,46 @@ public final class TransParameterizedTypes extends TreeTranslator {
             result = tree;
             return;
         }
-        var baseField = generateBaseArgField(tree);
-        rewriteConstructors(tree, baseField);
-
-//        var table = tree.name.table;
-//        var returnType = syms.intType;
-//        var flags = Flags.STATIC | Flags.PUBLIC;
-//        var methodName = table.fromString("foo");
-//
-//        var returnValue = make.Literal(42);
-//        var returnStatement = make.Return(returnValue);
-//        var method = make.MethodDef(
-//            make.Modifiers(flags),
-//            methodName,
-//            make.Type(returnType),
-//            List.nil(),
-//            List.nil(),
-//            List.nil(),
-//            make.Block(0L, List.of(returnStatement)),
-//            null
-//        );
-//
-//        var methodType = new Type.MethodType(List.nil(), returnType, List.nil(), tree.sym);
-//        method.type = methodType;
-//        var sym = new Symbol.MethodSymbol(flags, methodName, methodType, tree.sym);
-//        method.sym = sym;
-//        tree.sym.members_field.enter(sym);
-//        tree.defs = tree.defs.append(method);
+        var fields = generateFields(tree);
+        rewriteMethods(tree, fields);
 
         result = tree;
     }
 
-    private JCTree.JCVariableDecl generateBaseArgField(JCTree.JCClassDecl tree) {
+    // region Base arg field generation
+
+    private Map<Symbol, JCTree.JCVariableDecl> generateFields(JCTree.JCClassDecl tree) {
+        var result = new HashMap<Symbol, JCTree.JCVariableDecl>();
+        // first generate the base field
+
         var fieldFlags = Flags.PRIVATE | Flags.FINAL;
         var fieldName = names.fromString(computeArgName(tree));
-        var field = make.VarDef(
+        var baseField = make.VarDef(
             make.Modifiers(fieldFlags),
             fieldName,
             make.Type(syms.argBaseType),
             null // init is done in constructor
         );
         var fieldSym = new Symbol.VarSymbol(fieldFlags, fieldName, syms.argBaseType, tree.sym);
-        field.sym = fieldSym;
-        field.type = syms.argBaseType;
+        baseField.sym = fieldSym;
+        baseField.type = syms.argBaseType;
 
         tree.sym.members_field.enter(fieldSym);
-        tree.defs = tree.defs.append(field);
-        return field;
+        tree.defs = tree.defs.append(baseField);
+        result.put(tree.sym, baseField);
+
+        tree.implementing.forEach(i -> {
+            if (!i.type.isParameterized()) {
+                return;
+            }
+
+            throw new RuntimeException(i.type.toString());
+        });
+
+        return result;
     }
+
+    // endregion
 
     private String computeArgName(JCTree.JCClassDecl owner) {
         var synChar = target.syntheticNameChar();
@@ -116,32 +111,42 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return "0" + synChar + "typeArgs" + synChar + pkg + synChar + synChar + name;
     }
 
-    private void rewriteConstructors(JCTree.JCClassDecl tree, JCTree.JCVariableDecl baseField) {
+    private void rewriteMethods(JCTree.JCClassDecl tree, Map<Symbol, JCTree.JCVariableDecl> fields) {
         for (var member : tree.defs) {
             if (member.getKind() != Tree.Kind.METHOD) {
                 continue;
             }
-
             var method = (JCTree.JCMethodDecl) member;
-            if (!method.getName().equals(names.init)) {
-                continue;
+
+            if (method.getName().equals(names.init)) {
+                rewriteConstructor(tree, method, fields);
+            } else {
+                rewriteBasicMethod(tree, method, fields);
             }
+        }
+    }
 
-            var copy = copyConstructor(method);
-            prependArgToConstructorParams(method);
+    // region Constructor rewriting
 
-            // before modifying the constructor, we create the overload for backward compatibility
-            backwardCompatibilityOverloadConstructor(tree, method, copy);
+    private void rewriteConstructor(
+        JCTree.JCClassDecl tree,
+        JCTree.JCMethodDecl method,
+        Map<Symbol, JCTree.JCVariableDecl> fields
+    ) {
+        var copy = copyConstructor(method);
+        prependArgToConstructorParams(method);
 
-            // we then check whether the constructor calls another constructor
-            var doesCallOverload = doesCallConstructor(method);
+        // before modifying the constructor, we create the overload for backward compatibility
+        backwardCompatibilityOverloadConstructor(tree, method, copy);
 
-            // if so, we just need to add the extra argument to the call of the other constructor
-            if (doesCallOverload) {
-                appendArgToThisCall(method);
-            } else { // otherwise, this constructor must set the base field
-                setFieldValue(method, baseField);
-            }
+        // we then check whether the constructor calls another constructor
+        var doesCallOverload = doesCallConstructor(method);
+
+        // if so, we just need to add the extra argument to the call of the other constructor
+        if (doesCallOverload) {
+            appendArgToThisCall(method);
+        } else { // otherwise, this constructor must set the base field
+            setFieldValue(tree, method, fields);
         }
     }
 
@@ -342,12 +347,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return names._this.equals(calledName);
     }
 
-
-    @Override
-    public void visitMethodDef(JCTree.JCMethodDecl tree) {
-        super.visitMethodDef(tree);
-    }
-
     private void appendArgToThisCall(JCTree.JCMethodDecl constructor) {
         var instructions = constructor.body.stats;
         var call = (JCTree.JCMethodInvocation) ((JCTree.JCExpressionStatement) instructions.getFirst()).expr;
@@ -355,16 +354,36 @@ public final class TransParameterizedTypes extends TreeTranslator {
         call.args = args.prepend(make.Ident(constructor.params.getFirst()));
     }
 
-    private void setFieldValue(JCTree.JCMethodDecl constructor, JCTree.JCVariableDecl field) {
+    private void setFieldValue(
+        JCTree.JCClassDecl tree,
+        JCTree.JCMethodDecl constructor,
+        Map<Symbol, JCTree.JCVariableDecl> fields
+    ) {
         var instructions = constructor.body.stats;
+        var baseField = fields.get(tree.sym);
         var assign = make.Assign(
-            make.Ident(field.sym),
+            make.Ident(baseField.sym),
             make.Ident(constructor.params.getFirst().sym)
         );
         // we set the field value before calling the super constructor as it is now allowed
         instructions = instructions.prepend(make.Exec(assign));
         constructor.body.stats = instructions;
     }
+
+    // endregion
+
+    // region Basic method rewriting
+
+    private void rewriteBasicMethod(
+        JCTree.JCClassDecl tree,
+        JCTree.JCMethodDecl method,
+        Map<Symbol, JCTree.JCVariableDecl> baseField
+    ) {
+
+    }
+
+    // endregion
+
 
     public JCTree translateTopLevelClass(Env<AttrContext> env, JCTree cdef, TreeMaker make) {
         try {
