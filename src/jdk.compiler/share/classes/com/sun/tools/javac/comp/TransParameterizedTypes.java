@@ -75,8 +75,24 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var result = new HashMap<Symbol, JCTree.JCVariableDecl>();
         // first generate the base field
 
-        var fieldFlags = Flags.PRIVATE | Flags.FINAL;
-        var fieldName = names.fromString(computeArgName(tree));
+        var baseField = generateField(tree, tree.sym);
+        result.put(tree.sym, baseField);
+
+        tree.implementing.forEach(i -> {
+            if (!i.type.isParameterized()) {
+                return;
+            }
+            var classExpression = (JCTree.JCIdent) ((JCTree.JCTypeApply) i).clazz;
+            var field = generateField(tree, classExpression.sym);
+            result.put(classExpression.sym, field);
+        });
+
+        return result;
+    }
+
+    private JCTree.JCVariableDecl generateField(JCTree.JCClassDecl tree, Symbol superType) {
+        var fieldFlags = Flags.PRIVATE; //| Flags.FINAL;
+        var fieldName = names.fromString(computeArgName(superType));
         var baseField = make.VarDef(
             make.Modifiers(fieldFlags),
             fieldName,
@@ -89,27 +105,19 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         tree.sym.members_field.enter(fieldSym);
         tree.defs = tree.defs.append(baseField);
-        result.put(tree.sym, baseField);
+        return baseField;
+    }
 
-        tree.implementing.forEach(i -> {
-            if (!i.type.isParameterized()) {
-                return;
-            }
-
-            throw new RuntimeException(i.type.toString());
-        });
-
-        return result;
+    private String computeArgName(Symbol owner) {
+        var synChar = target.syntheticNameChar();
+        var pkg = owner.packge().fullname.toString().replace('.', synChar);
+        var name = owner.getSimpleName().toString();
+        return "0" + synChar + "typeArgs" + synChar + pkg + synChar + synChar + name;
     }
 
     // endregion
 
-    private String computeArgName(JCTree.JCClassDecl owner) {
-        var synChar = target.syntheticNameChar();
-        var pkg = owner.sym.packge().name.toString().replace('.', synChar);
-        var name = owner.name.toString();
-        return "0" + synChar + "typeArgs" + synChar + pkg + synChar + synChar + name;
-    }
+
 
     private void rewriteMethods(JCTree.JCClassDecl tree, Map<Symbol, JCTree.JCVariableDecl> fields) {
         for (var member : tree.defs) {
