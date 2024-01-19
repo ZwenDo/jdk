@@ -1628,11 +1628,12 @@ public class JavaCompiler {
 
             if (scanner.hasTypeParams) {
                 env.tree = TransParameterizedTypes.instance(context).translateTopLevelClass(env, env.tree, localMake);
-                if (env.tree instanceof JCClassDecl classDecl) {
-                    if (classDecl.name.contentEquals("Foo")) {
-                        printNote(classDecl.defs.toString());
-                    }
-                }
+//                TODO remove this
+//                if (env.tree instanceof JCClassDecl classDecl) {
+//                    if (classDecl.name.contentEquals("Foo")) {
+//                        printNote(classDecl.defs.toString());
+//                    }
+//                }
             }
 
             compileStates.put(env, CompileState.TRANSPARAMETERIZEDTYPES);

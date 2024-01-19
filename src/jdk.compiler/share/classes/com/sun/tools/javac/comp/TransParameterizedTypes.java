@@ -1,6 +1,7 @@
 package com.sun.tools.javac.comp;
 
 import com.sun.source.tree.Tree;
+import com.sun.tools.javac.code.BoundKind;
 import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symtab;
@@ -18,6 +19,9 @@ import com.sun.tools.javac.util.Names;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 public final class TransParameterizedTypes extends TreeTranslator {
 
@@ -63,8 +67,14 @@ public final class TransParameterizedTypes extends TreeTranslator {
             result = tree;
             return;
         }
-        var fields = generateFields(tree);
-        rewriteMethods(tree, fields);
+        var isClassParameterized = tree.sym.type.isParameterized();
+        Map<Symbol, TransParameterizedTypes.ArgFieldData> fields;
+        if (isClassParameterized) {
+            fields = generateFields(tree);
+        } else {
+            fields = Map.of();
+        }
+        rewriteMethods(tree, fields, isClassParameterized);
 
         result = tree;
     }
@@ -156,7 +166,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
     // endregion
 
-    private void rewriteMethods(JCTree.JCClassDecl tree, Map<Symbol, ArgFieldData> fields) {
+    private void rewriteMethods(
+        JCTree.JCClassDecl tree,
+        Map<Symbol, ArgFieldData> fields,
+        boolean isClassParameterized
+    ) {
         for (var member : tree.defs) {
             if (member.getKind() != Tree.Kind.METHOD) {
                 continue;
@@ -164,10 +178,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
             var method = (JCTree.JCMethodDecl) member;
 
             if (method.getName().equals(names.init)) {
-                rewriteConstructor(tree, method, fields);
+                if (isClassParameterized) {
+                    rewriteConstructor(tree, method, fields);
+                }
             } else {
-                rewriteBasicMethod(tree, method, fields);
+                rewriteBasicMethod(tree, method, fields, isClassParameterized);
             }
+
         }
     }
 
@@ -178,11 +195,19 @@ public final class TransParameterizedTypes extends TreeTranslator {
         JCTree.JCMethodDecl method,
         Map<Symbol, ArgFieldData> fields
     ) {
-        var copy = copyConstructor(method);
-        prependArgToConstructorParams(method);
+        var copy = copyMethod(method);
+        prependArgToMethodParams(method, syms.argBaseType, m -> m.type.asMethodType());
 
         // before modifying the constructor, we create the overload for backward compatibility
-        backwardCompatibilityOverloadConstructor(tree, method, copy);
+        var ident = make.Ident(method.sym);
+        ident.name = names._this;
+        backwardCompatibilityOverloadMethod(
+            tree,
+            method,
+            copy,
+            ident,
+            () -> createDefaultTypeArgs(copy.pos, tree)
+        );
 
         // we then check whether the constructor calls another constructor
         var doesCallOverload = doesCallConstructor(method);
@@ -195,10 +220,12 @@ public final class TransParameterizedTypes extends TreeTranslator {
         }
     }
 
-    private void backwardCompatibilityOverloadConstructor(
+    private void backwardCompatibilityOverloadMethod(
         JCTree.JCClassDecl clazz,
         JCTree.JCMethodDecl modified,
-        JCTree.JCMethodDecl copy
+        JCTree.JCMethodDecl copy,
+        JCTree.JCExpression callToBaseMethod,
+        Supplier<JCTree.JCExpression> defaultParam
     ) {
         var baseParamTypeArgs = modified.sym.type.getTypeArguments();
         List<JCTree.JCExpression> baseParamTypeArgsCopy = baseParamTypeArgs.isEmpty()
@@ -207,14 +234,14 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         var params = new ListBuffer<JCTree.JCExpression>();
         copy.params.forEach(p -> params.add(make.Ident(p)));
-        var defaultTypeArgs = createDefaultTypeArgs(copy.pos, clazz);
+        var defaultTypeArgs = defaultParam.get();
         params.prepend(defaultTypeArgs);
-        ((Type.MethodType) copy.type).argtypes = modified.sym.type.getTypeArguments();
-        copy.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
-        copy.sym.flags_field |= Flags.SYNTHETIC | Flags.MANDATED;
+        var visitor = new MethodTypeApplier(t -> t.argtypes = modified.sym.type.getTypeArguments());
+        copy.type.accept(visitor, null);
+//        TODO uncomment
+//        copy.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
+//        copy.sym.flags_field |= Flags.SYNTHETIC | Flags.MANDATED;
 
-        var ident = make.Ident(modified.sym);
-        ident.name = names._this;
         copy.body = make.at(modified.pos)
             .Block(
                 0L,
@@ -222,7 +249,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                     make.Exec(
                         make.Apply(
                             baseParamTypeArgsCopy,
-                            ident,
+                            callToBaseMethod,
                             params.toList()
                         ).setType(syms.voidType)
                     )
@@ -234,13 +261,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
     }
 
     private JCTree.JCExpression createDefaultTypeArgs(int pos, JCTree.JCClassDecl classDecl) {
-        var rawTypeCall = externalMethodInvocation(
-            pos,
-            "of",
-            syms.rawTypeTypeArgs,
-            syms.rawTypeTypeArgs,
-            List.of(syms.parameterizedTypeTypeArgs)
-        );
+        var rawTypeCall = rawTypeOfInvocation(pos);
         var parameterizedTypeCall = parameterizedTypeOfInvocation(pos);
         rawTypeCall.args = List.of(parameterizedTypeCall);
 
@@ -251,78 +272,205 @@ public final class TransParameterizedTypes extends TreeTranslator {
         );
 
         // append of all type arguments wrapped in a ClassType.of call
-        var builder = new ListBuffer<JCTree.JCExpression>();
-        builder.add(classFieldAccess);
-        classDecl.sym.getTypeParameters().forEach(parameter -> {
-            var head = parameter.getBounds().head;
-            var classFieldAcc = make.Select(
-                make.Type(head),
-                syms.getClassField(head, types)
-            );
-            var call = classTypeOfInvocation(pos);
-            call.args = List.of(classFieldAcc);
-            builder.add(call);
-        });
-
-        parameterizedTypeCall.args = builder.toList();
+        var params = defaultParams(classDecl.sym.getTypeParameters());
+        parameterizedTypeCall.args = params.prepend(classFieldAccess);
 
         return rawTypeCall;
+    }
+
+    private List<JCTree.JCExpression> defaultParams(List<Symbol.TypeVariableSymbol> params) {
+        var buffer = new ListBuffer<JCTree.JCExpression>();
+        params.forEach(parameter -> buffer.add(generateVarSymbolTypes(params, null, parameter)));
+        return buffer.toList();
+    }
+
+    private JCTree.JCMethodInvocation generateVarSymbolTypes(
+        List<Symbol.TypeVariableSymbol> base,
+        Type previous,
+        Symbol.TypeVariableSymbol parameter
+    ) {
+        var bounds = parameter.getBounds();
+        if (bounds.size() == 1) {
+            var bound = bounds.head;
+            return generateType(base, previous, bound);
+        } else {
+            var intersectionBuffer = new ListBuffer<JCTree.JCExpression>();
+            bounds.forEach(current -> intersectionBuffer.add(generateType(base, previous, current)));
+            var call = externalMethodInvocation(
+                -1,
+                "of",
+                syms.intersectionTypeArgs,
+                syms.intersectionTypeArgs,
+                List.of(types.makeArrayType(syms.argBaseType))
+            );
+            call.args = intersectionBuffer.toList();
+            return call;
+        }
+    }
+
+    private JCTree.JCMethodInvocation generateType(List<Symbol.TypeVariableSymbol> base, Type previous, Type current) {
+        var res = switch (current.getTag()) {
+            case ARRAY -> { // Foo[]
+                var call = externalMethodInvocation(
+                    -1,
+                    "of",
+                    syms.arrayTypeArgs,
+                    syms.arraysType,
+                    List.of(syms.argBaseType)
+                );
+                var arrayType = (Type.ArrayType) current;
+                call.args = List.of(generateType(base, current, arrayType.elemtype));
+                yield call;
+            }
+            case WILDCARD -> { // ? / ? extends Foo / ? super Foo
+                var wildcardType = (Type.WildcardType) current;
+                var callName = wildcardType.kind == BoundKind.SUPER ? "ofLower" : "ofUpper";
+                var call = externalMethodInvocation(
+                    -1,
+                    callName,
+                    syms.wildcardTypeArgs,
+                    syms.wildcardTypeArgs,
+                    List.of(syms.argBaseType)
+                );
+                Type bound;
+                if (wildcardType.isUnbound()) {
+                    // TODO fetch the default upper bound
+                    var index = previous.allparams().indexOf(current);
+                    if (true) {
+                        var sym = (Symbol.ClassSymbol) previous.tsym;
+                        var symbol = sym.getTypeParameters().get(index);
+                        throw new AssertionError(sym);
+                    }
+                    bound = null;
+                } else {
+                    bound = wildcardType.isSuperBound() ? wildcardType.getSuperBound() : wildcardType.getExtendsBound();
+                }
+                call.args = List.of(generateType(base, current, bound));
+                yield call;
+            }
+            case CLASS -> { // Foo / Foo<E> / Foo(raw)
+                var classFieldAcc = make.Select(
+                    make.Type(current),
+                    syms.getClassField(current, types)
+                );
+                if (current.isRaw()) { // raw type
+                    var rawTypeCall = rawTypeOfInvocation(-1);
+                    var parameterizedTypeCall = parameterizedTypeOfInvocation(-1);
+                    rawTypeCall.args = List.of(parameterizedTypeCall);
+                    var buffer = new ListBuffer<JCTree.JCExpression>();
+                    buffer.add(classFieldAcc);
+                    current.tsym.type.allparams().forEach(param -> {
+                        buffer.add(generateType(base, current, param.getUpperBound()));
+                    });
+                    parameterizedTypeCall.args = buffer.toList();
+                    yield rawTypeCall;
+                } else if (current.isParameterized()) { // Foo<E>
+                    var call = parameterizedTypeOfInvocation(-1);
+                    var buffer = new ListBuffer<JCTree.JCExpression>();
+                    buffer.add(classFieldAcc);
+                    current.allparams().forEach(param -> buffer.add(generateType(base, current, param)));
+                    call.args = buffer.toList();
+                    yield call;
+                } else { // Foo
+                    var call = classTypeOfInvocation(-1);
+                    call.args = List.of(classFieldAcc);
+                    yield call;
+                }
+            }
+            case TYPEVAR -> {
+                var name = current.tsym.name;
+                var param = base
+                    .stream()
+                    .filter(p -> name.equals(p.name))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Type variable " + name + " not found in " + base + " " + current));
+                yield generateVarSymbolTypes(base, current, param);
+            }
+            default -> throw new AssertionError("Unhandled type " + current + " (" + current.getClass() + ")");
+        };
+
+        var enclosingType = current.getEnclosingType();
+        if (enclosingType != null && !Type.noType.equals(enclosingType)) { // nested class
+            var outerRes = generateType(base, current, enclosingType);
+            var params = List.<JCTree.JCExpression>of(outerRes, res);
+            res = externalMethodInvocation(
+                -1,
+                "of",
+                syms.innerClassTypeArgs,
+                syms.innerClassTypeArgs,
+                List.of(syms.argBaseType, syms.argBaseType)
+            );
+            res.args = params;
+        }
+
+        return res;
     }
 
     /**
      * Copy the given constructor without its body.
      */
-    private JCTree.JCMethodDecl copyConstructor(JCTree.JCMethodDecl baseConstructor) {
-        var treeCopy = make.at(baseConstructor.pos).MethodDef(
-            baseConstructor.mods,
-            baseConstructor.name,
-            baseConstructor.restype,
-            baseConstructor.typarams,
-            baseConstructor.params,
-            baseConstructor.thrown,
+    private JCTree.JCMethodDecl copyMethod(JCTree.JCMethodDecl baseMethod) {
+        var treeCopy = make.at(baseMethod.pos).MethodDef(
+            baseMethod.mods,
+            baseMethod.name,
+            baseMethod.restype,
+            baseMethod.typarams,
+            baseMethod.params,
+            baseMethod.thrown,
             null,
-            baseConstructor.defaultValue
+            baseMethod.defaultValue
         );
         var symbolCopy = new Symbol.MethodSymbol(
-            baseConstructor.sym.flags(),
-            baseConstructor.sym.name,
-            baseConstructor.sym.type,
-            baseConstructor.sym.owner
+            baseMethod.sym.flags(),
+            baseMethod.sym.name,
+            baseMethod.sym.type,
+            baseMethod.sym.owner
         );
-        symbolCopy.params = baseConstructor.sym.params;
-        symbolCopy.extraParams = baseConstructor.sym.extraParams;
-        symbolCopy.capturedLocals = baseConstructor.sym.capturedLocals;
-        symbolCopy.defaultValue = baseConstructor.sym.defaultValue;
-        symbolCopy.type = new Type.MethodType(
-            baseConstructor.sym.type.getParameterTypes(),
-            baseConstructor.sym.type.getReturnType(),
-            baseConstructor.sym.type.getThrownTypes(),
-            baseConstructor.type.tsym
-        );
+        symbolCopy.params = baseMethod.sym.params;
+        symbolCopy.extraParams = baseMethod.sym.extraParams;
+        symbolCopy.capturedLocals = baseMethod.sym.capturedLocals;
+        symbolCopy.defaultValue = baseMethod.sym.defaultValue;
+        symbolCopy.type = copyMethodType(baseMethod);
+
         treeCopy.sym = symbolCopy;
-        treeCopy.type = new Type.MethodType(
-            baseConstructor.sym.type.getParameterTypes(),
-            baseConstructor.sym.type.getReturnType(),
-            baseConstructor.sym.type.getThrownTypes(),
-            baseConstructor.type.tsym
-        );
+        treeCopy.type = copyMethodType(baseMethod);
 
         return treeCopy;
     }
 
-    private void prependArgToConstructorParams(JCTree.JCMethodDecl method) {
+    private Type copyMethodType(JCTree.JCMethodDecl baseMethod) {
+        var baseType = new Type.MethodType(
+            baseMethod.sym.type.getParameterTypes(),
+            baseMethod.sym.type.getReturnType(),
+            baseMethod.sym.type.getThrownTypes(),
+            baseMethod.type.tsym
+        );
+        if (baseMethod.getTypeParameters().isEmpty()) {
+            return baseType;
+        }
+        return new Type.ForAll(
+            baseMethod.sym.type.getTypeArguments(),
+            baseType
+        );
+    }
+
+    private void prependArgToMethodParams(
+        JCTree.JCMethodDecl method,
+        Type argType,
+        Function<JCTree.JCMethodDecl, Type.MethodType> methodTypeAccessor
+    ) {
         var oldPos = method.pos;
         var extraArgParam = make.at(method.pos).Param(
             names.fromString("0" + target.syntheticNameChar() + "arg"),
-            syms.argBaseType,
+            argType,
             method.sym
         );
         extraArgParam.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
         make.at(oldPos);
 
         method.params = method.params.prepend(extraArgParam);
-        var mtype = (Type.MethodType) method.type;
-        mtype.argtypes = mtype.argtypes.prepend(syms.argBaseType);
+        var mtype = methodTypeAccessor.apply(method);
+        mtype.argtypes = mtype.argtypes.prepend(extraArgParam.type);
         method.sym.extraParams = method.sym.extraParams.prepend(extraArgParam.sym);
     }
 
@@ -401,13 +549,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 syms.getClassField(clazz.type, types)
             )
         );
-        foo(root, args, tree, baseArg, fieldData.typeApply());
+        createSuperArgObject(root, args, tree, baseArg, fieldData.typeApply());
 
         root.args = args.toList();
         return root;
     }
 
-    private void foo(
+    private void createSuperArgObject(
         JCTree.JCMethodInvocation call,
         ListBuffer<JCTree.JCExpression> args,
         JCTree.JCClassDecl tree,
@@ -454,7 +602,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                         syms.getClassField(clazz.type, types)
                     )
                 );
-                foo(nestedCall, methodArgs, tree, baseArg, apply);
+                createSuperArgObject(nestedCall, methodArgs, tree, baseArg, apply);
                 nestedCall.args = methodArgs.toList();
                 args.add(nestedCall);
             }
@@ -470,10 +618,39 @@ public final class TransParameterizedTypes extends TreeTranslator {
     private void rewriteBasicMethod(
         JCTree.JCClassDecl tree,
         JCTree.JCMethodDecl method,
-        Map<Symbol, ArgFieldData> baseField
+        Map<Symbol, ArgFieldData> fields,
+        boolean isClassParameterized
     ) {
+        var isMethodParameterized = !method.typarams.isEmpty();
+        if (!isMethodParameterized && !isClassParameterized) {
+            return;
+        }
 
+        if (isMethodParameterized) {
+            var copy = copyMethod(method);
+            prependArgToMethodParams(method, syms.methodTypeArgs, m -> ((Type.ForAll) m.type).qtype.asMethodType());
+            backwardCompatibilityOverloadMethod(
+                tree,
+                method,
+                copy,
+                make.Ident(method.sym),
+                () -> methodDefaultTypeArgs(method)
+            );
+        }
     }
+
+    private JCTree.JCExpression methodDefaultTypeArgs(JCTree.JCMethodDecl method) {
+        var call = externalMethodInvocation(
+            -1,
+            "of",
+            syms.methodTypeArgs,
+            syms.methodTypeArgs,
+            List.of(types.makeArrayType(syms.argBaseType))
+        );
+        call.args = defaultParams(method.sym.getTypeParameters());
+        return call;
+    }
+
 
     // endregion
 
@@ -509,13 +686,23 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return methodCall;
     }
 
+    private JCTree.JCMethodInvocation rawTypeOfInvocation(int pos) {
+        return externalMethodInvocation(
+            pos,
+            "of",
+            syms.rawTypeTypeArgs,
+            syms.rawTypeTypeArgs,
+            List.of(syms.parameterizedTypeTypeArgs)
+        );
+    }
+
     private JCTree.JCMethodInvocation parameterizedTypeOfInvocation(int pos) {
         return externalMethodInvocation(
             pos,
             "of",
             syms.parameterizedTypeTypeArgs,
             syms.argBaseType,
-            List.of(syms.classType, syms.argBaseType, types.makeArrayType(syms.argBaseType))
+            List.of(syms.classType, types.makeArrayType(syms.argBaseType))
         );
     }
 
@@ -532,8 +719,32 @@ public final class TransParameterizedTypes extends TreeTranslator {
     private record ArgFieldData(JCTree.JCVariableDecl field, JCTree.JCTypeApply typeApply) {
     }
 
-    // endregion
+    private static class MethodTypeApplier extends Types.DefaultTypeVisitor<Void, Void> {
+        private final Consumer<Type.MethodType> action;
 
+
+        private MethodTypeApplier(Consumer<Type.MethodType> action) {
+            this.action = action;
+        }
+
+        @Override
+        public Void visitForAll(Type.ForAll t, Void unused) {
+            return visitMethodType(t.qtype.asMethodType(), unused);
+        }
+
+        @Override
+        public Void visitMethodType(Type.MethodType t, Void unused) {
+            action.accept(t);
+            return null;
+        }
+
+        @Override
+        public Void visitType(Type t, Void unused) {
+            throw new AssertionError("Unexpected type " + t);
+        }
+    }
+
+    // endregion
 
     public JCTree translateTopLevelClass(Env<AttrContext> env, JCTree cdef, TreeMaker make) {
         try {

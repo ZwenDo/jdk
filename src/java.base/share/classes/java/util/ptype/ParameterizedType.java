@@ -125,15 +125,15 @@ public non-sealed interface ParameterizedType extends Arg {
      * Creates a {@link ParameterizedType} from the given raw type and type arguments.
      *
      * @param type  the raw type
-     * @param first the first type argument
-     * @param others  the remaining type arguments
+     * @param args  the type arguments
      * @return the {@link ParameterizedType}
      */
-    static ParameterizedType of(Class<?> type, Arg first, Arg... others) {
-        var list = new ArrayList<Arg>(others.length + 1);
-        list.add(first);
-        list.addAll(Arrays.asList(others));
-        return of(type, list);
+    static ParameterizedType of(Class<?> type, Arg... args) {
+        Objects.requireNonNull(type);
+        if (args.length == 0) {
+            throw new IllegalArgumentException("args is empty");
+        }
+        return of(type, Arrays.asList(args));
     }
 
 }

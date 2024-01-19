@@ -1,5 +1,6 @@
 package java.util.ptype;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -46,6 +47,20 @@ public non-sealed interface Wildcard extends Arg {
     }
 
     /**
+     * Creates a {@link Wildcard} representing the given upper bound.
+     *
+     * @param upperBound the upper bound
+     * @return the {@link Wildcard}
+     */
+    static Wildcard ofUpper(Arg... upperBound) {
+        Objects.requireNonNull(upperBound);
+        if (upperBound.length == 0) {
+            throw new IllegalArgumentException("upperBound.isEmpty()");
+        }
+        return ofUpper(Arrays.asList(upperBound));
+    }
+
+    /**
      * Creates a {@link Wildcard} representing the given lower bound.
      *
      * @param lowerBound the lower bound
@@ -57,6 +72,20 @@ public non-sealed interface Wildcard extends Arg {
             throw new IllegalArgumentException("lowerBound.isEmpty()");
         }
         return of(List.of(ClassType.of(Object.class)), List.copyOf(lowerBound));
+    }
+
+    /**
+     * Creates a {@link Wildcard} representing the given lower bound.
+     *
+     * @param lowerBound the lower bound
+     * @return the {@link Wildcard}
+     */
+    static Wildcard ofLower(Arg... lowerBound) {
+        Objects.requireNonNull(lowerBound);
+        if (lowerBound.length == 0) {
+            throw new IllegalArgumentException("lowerBound.isEmpty()");
+        }
+        return ofLower(Arrays.asList(lowerBound));
     }
 
     private static Wildcard of(List<Arg> upperBound, List<Arg> lowerBound) {

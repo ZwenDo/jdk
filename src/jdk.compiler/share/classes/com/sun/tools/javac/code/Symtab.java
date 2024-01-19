@@ -217,7 +217,12 @@ public class Symtab {
     public final Type parameterizedTypeTypeArgs;
     public final Type rawTypeTypeArgs;
     public final Type classTypeArgs;
+    public final Type arrayTypeArgs;
+    public final Type innerClassTypeArgs;
+    public final Type intersectionTypeArgs;
+    public final Type wildcardTypeArgs;
     public final Type typeArgUtils;
+    public final Type methodTypeArgs;
     public final Type stringConcatFactory;
     public final Type repeatableType;
     public final Type documentedType;
@@ -616,7 +621,12 @@ public class Symtab {
         parameterizedTypeTypeArgs = enterClass("java.util.ptype.ParameterizedType");
         rawTypeTypeArgs = enterClass("java.util.ptype.RawType");
         classTypeArgs = enterClass("java.util.ptype.ClassType");
+        arrayTypeArgs = enterClass("java.util.ptype.ArrayType");
+        innerClassTypeArgs = enterClass("java.util.ptype.InnerClassType");
+        intersectionTypeArgs = enterClass("java.util.ptype.Intersection");
+        wildcardTypeArgs = enterClass("java.util.ptype.Wildcard");
         typeArgUtils = enterClass("java.util.ptype.TypeArgUtils");
+        methodTypeArgs = enterClass("java.util.ptype.MethodTypeArgs");
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");
         previewFeatureType = enterClass("jdk.internal.javac.PreviewFeature");
