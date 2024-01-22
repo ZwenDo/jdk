@@ -1295,6 +1295,7 @@ public class Check {
             }
             // Imply STRICTFP if owner has STRICTFP set.
             implicit |= sym.owner.flags_field & STRICTFP;
+            implicit |= NEW_GENERICS;
             break;
         default:
             throw new AssertionError();

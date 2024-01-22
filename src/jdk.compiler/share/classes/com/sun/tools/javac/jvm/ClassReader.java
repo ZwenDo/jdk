@@ -909,6 +909,12 @@ public class ClassReader {
                 }
             },
 
+            new AttributeReader(names.NewGenerics, V66, CLASS_ATTRIBUTE) {
+                protected void read(Symbol sym, int attrLen) {
+                    sym.flags_field |= NEW_GENERICS;
+                }
+            },
+
             new AttributeReader(names.Exceptions, V45_3, CLASS_OR_MEMBER_ATTRIBUTE) {
                 protected void read(Symbol sym, int attrLen) {
                     int nexceptions = nextChar();

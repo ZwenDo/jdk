@@ -139,6 +139,7 @@ public class Names {
     public final Name CompilationID;
     public final Name ConstantValue;
     public final Name Deprecated;
+    public final Name NewGenerics;
     public final Name EnclosingMethod;
     public final Name Enum;
     public final Name Exceptions;
@@ -335,6 +336,7 @@ public class Names {
         CompilationID = fromString("CompilationID");
         ConstantValue = fromString("ConstantValue");
         Deprecated = fromString("Deprecated");
+        NewGenerics = fromString("NewGenerics");
         EnclosingMethod = fromString("EnclosingMethod");
         Enum = fromString("Enum");
         Exceptions = fromString("Exceptions");

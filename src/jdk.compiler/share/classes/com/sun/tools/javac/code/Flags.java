@@ -279,8 +279,9 @@ public class Flags {
     public static final long THROWS = 1L<<47;
 
     /**
-     * Currently available: Bit 48.
+     * Flag that indicates classes with new generics.
      */
+    public static final long NEW_GENERICS = 1L<<48;
 
     /**
      * Flag that marks a synthetic method body for a lambda expression

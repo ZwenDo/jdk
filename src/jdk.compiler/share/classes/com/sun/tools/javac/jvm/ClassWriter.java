@@ -348,6 +348,11 @@ public class ClassWriter extends ClassFile {
             endAttr(alenIdx);
             acount++;
         }
+        if ((flags & NEW_GENERICS) != 0) {
+            int alenIdx = writeAttr(names.NewGenerics);
+            endAttr(alenIdx);
+            acount++;
+        }
         return acount;
     }
 
