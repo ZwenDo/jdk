@@ -77,6 +77,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             result = tree;
             return;
         }
+        debug("Visiting class ", tree.name);
         var isClassParameterized = tree.sym.type.isParameterized();
         Map<Symbol, TransParameterizedTypes.ArgFieldData> fields;
         if (isClassParameterized) {
@@ -603,6 +604,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
                     syms.getClassField(clazz.type, types)
                 )
             );
+            var methodType = tree.constructorType.asMethodType();
+            if (!syms.argBaseType.equals(methodType.argtypes.head)) {
+                methodType.argtypes = methodType.argtypes.prepend(syms.argBaseType);
+            }
 
             tree.args = tree.args.prepend(call);
         }
