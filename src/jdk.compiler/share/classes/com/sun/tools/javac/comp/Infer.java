@@ -215,6 +215,13 @@ public class Infer {
                 log.note(env.tree.pos, Notes.DeferredMethodInst(msym, mt, resultInfo.pt));
             }
 
+            var buffer = new ListBuffer<Type>();
+            inferenceContext.undetvars.forEach(u -> {
+                var undetVar = (UndetVar) u;
+                buffer.prepend(undetVar.getInst());
+            });
+            mt.inferredTypes = buffer.toList();
+
             // return instantiated version of method type
             return mt;
         } finally {
