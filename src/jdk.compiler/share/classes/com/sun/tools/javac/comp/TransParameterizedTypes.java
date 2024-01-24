@@ -20,10 +20,14 @@ import com.sun.tools.javac.util.Log;
 import com.sun.tools.javac.util.Name;
 import com.sun.tools.javac.util.Names;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public final class TransParameterizedTypes extends TreeTranslator {
 
@@ -530,9 +534,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         boolean isClassParameterized
     ) {
         var isMethodParameterized = !method.typarams.isEmpty();
-        if (!isMethodParameterized && (method.sym.isStatic() || !isClassParameterized)) {
-            return;
-        }
 
         if (isMethodParameterized) {
             var copy = copyMethod(method);
@@ -542,19 +543,16 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 method,
                 copy,
                 make.Ident(method.sym),
-                () -> methodDefaultTypeArgs(method)
+                () -> {
+                    var call = methodTypeArgsInvocation(-1);
+                    call.args = defaultParams(method.sym.getTypeParameters());
+                    return call;
+                }
             );
         }
 
         parameterizedMethodCallVisitor.visitMethod(method);
     }
-
-    private JCTree.JCExpression methodDefaultTypeArgs(JCTree.JCMethodDecl method) {
-        var call = methodTypeArgsInvocation(-1);
-        call.args = defaultParams(method.sym.getTypeParameters());
-        return call;
-    }
-
 
     private class ParameterizedMethodCallVisitor extends TreeTranslator {
 
@@ -573,7 +571,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
             var methodType = tree.meth.type.asMethodType();
             var call = methodTypeArgsInvocation(-1);
-            call.args = argTypeParam(methodType);
+            call.args = argTypeParam(methodType.inferredTypes);
             // TODO not sure about this
             var t = tree.meth.type.asMethodType();
             t.argtypes = t.argtypes.prepend(call.type);
@@ -581,27 +579,42 @@ public final class TransParameterizedTypes extends TreeTranslator {
             tree.args = tree.args.prepend(call);
         }
 
-//        @Override
-//        public void visitNewClass(JCTree.JCNewClass tree) {
-//            super.visitNewClass(tree);
-//
-//            var sym = (Symbol.MethodSymbol) tree.constructor;
-//
-//            if (sym.type.getTypeArguments().isEmpty() || ((sym.owner.flags_field & Flags.NEW_GENERICS) == 0)) {
-//                return;
-//            }
-//
-//            var arg = argTypeParam(sym.type.asMethodType(), TransParameterizedTypes.this::methodTypeArgsInvocation);
-//            // TODO not sure about this
-//            var t = tree.constructor.type.asMethodType();
-//            t.argtypes = t.argtypes.prepend(arg.type);
-//
-//            tree.args = tree.args.prepend(arg);
-//        }
+        @Override
+        public void visitNewClass(JCTree.JCNewClass tree) {
+            super.visitNewClass(tree);
 
-        private List<JCTree.JCExpression> argTypeParam(Type.MethodType type) {
+            var sym = (Symbol.MethodSymbol) tree.constructor;
+            var clazz = sym.owner;
+
+            if (clazz.type.getTypeArguments().isEmpty() || ((clazz.flags_field & Flags.NEW_GENERICS) == 0)) {
+                return;
+            }
+
+            var cl = (Type.ClassType) tree.type;
+            var call = parameterizedTypeOfInvocation(-1);
+            var args = cl.getTypeArguments();
+            if (args.isEmpty()) { // raw call
+                throw new UnsupportedOperationException("Raw call not supported yet");
+            }
+            call.args = argTypeParam(args);
+            call.args = call.args.prepend(
+                make.Select(
+                    make.Ident(clazz),
+                    syms.getClassField(clazz.type, types)
+                )
+            );
+
+            tree.args = tree.args.prepend(call);
+        }
+
+        @Override
+        public void visitNewArray(JCTree.JCNewArray tree) {
+            super.visitNewArray(tree);
+        }
+
+        private List<JCTree.JCExpression> argTypeParam(List<Type> types) {
             var buffer = new ListBuffer<JCTree.JCExpression>();
-            type.inferredTypes.forEach(t -> buffer.add(generateArgs(type, t)));
+            types.forEach(t -> buffer.prepend(generateArgs(null, t)));
             return buffer.toList();
         }
 
@@ -694,7 +707,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
                                 owner.type,
                                 name
                             );
-                            debug(owner.type + " " + name + " " + syms.argBaseType.tsym + " " + symbol);
 
                             var call = getGetArgInvocation(-1);
                             call.args = List.of(make.Ident(symbol), make.Literal(index));
@@ -891,8 +903,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
         }
     }
 
-    private void debug(Object o) {
-        log.rawWarning(-1, o == null ? "null" : o.toString());
+    private void debug(Object... o) {
+        var str = Stream.of(o)
+            .map(String::valueOf)
+            .collect(Collectors.joining(", "));
+        log.rawWarning(-1, str);
     }
 
 }
