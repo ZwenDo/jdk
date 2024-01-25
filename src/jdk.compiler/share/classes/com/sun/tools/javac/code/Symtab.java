@@ -223,6 +223,7 @@ public class Symtab {
     public final Type wildcardTypeArgs;
     public final Type typeArgUtils;
     public final Type methodTypeArgs;
+    public final Type typeOperationsType;
     public final Type stringConcatFactory;
     public final Type repeatableType;
     public final Type documentedType;
@@ -627,6 +628,7 @@ public class Symtab {
         wildcardTypeArgs = enterClass("java.util.ptype.Wildcard");
         typeArgUtils = enterClass("java.util.ptype.TypeArgUtils");
         methodTypeArgs = enterClass("java.util.ptype.MethodTypeArgs");
+        typeOperationsType = enterClass("java.util.ptype.TypeOperations");
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");
         previewFeatureType = enterClass("jdk.internal.javac.PreviewFeature");

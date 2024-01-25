@@ -1,5 +1,7 @@
 package java.util.ptype;
 
+import jdk.internal.misc.Unsafe;
+
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
@@ -152,20 +154,16 @@ final class Internal {
 
     static {
         try {
-//            var f = Unsafe.class.getDeclaredField("theUnsafe");
-//            f.setAccessible(true);
-//            var unsafe = (Unsafe) f.get(null);
-//            var unsafe = Unsafe.getUnsafe();
-
             class LookupMock {
                 private Class<?> lookupClass;
                 private Class<?> prevLookupClass;
                 private int allowedModes;
             }
 
-//            var allowedModesOffset = unsafe.objectFieldOffset(LookupMock.class.getDeclaredField("allowedModes"));
-//            unsafe.getAndSetInt(LOOKUP, allowedModesOffset, -1);
-        } catch (Throwable/*NoSuchFieldException | IllegalAccessException */e) {
+            var unsafe = Unsafe.getUnsafe();
+            var allowedModesOffset = unsafe.objectFieldOffset(LookupMock.class.getDeclaredField("allowedModes"));
+            unsafe.getAndSetInt(LOOKUP, allowedModesOffset, -1);
+        } catch (NoSuchFieldException e) {
             throw new AssertionError(e);
         }
 

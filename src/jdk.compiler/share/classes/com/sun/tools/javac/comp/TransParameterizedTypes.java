@@ -185,7 +185,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             if (TreeInfo.isConstructor(member)) {
                 rewriteConstructor(tree, method, fields, isClassParameterized);
             } else {
-                rewriteBasicMethod(tree, method, fields, isClassParameterized);
+                rewriteBasicMethod(tree, method);
             }
 
         }
@@ -203,7 +203,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             writeParameterizedClassConstructor(tree, method, fields);
         }
 
-        parameterizedMethodCallVisitor.visitMethod(method);
+        parameterizedMethodCallVisitor.visitMethod(method, false);
     }
 
     private void writeParameterizedClassConstructor(
@@ -312,30 +312,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         });
         return buffer.toList();
     }
-
-//    private JCTree.JCMethodInvocation generateVarSymbolTypes(
-//        List<Symbol.TypeVariableSymbol> base,
-//        Type previous,
-//        Symbol.TypeVariableSymbol parameter
-//    ) {
-//        var bounds = parameter.getBounds();
-//        if (bounds.size() == 1) {
-//            var bound = bounds.head;
-//            return generateType(base, previous, bound);
-//        } else {
-//            var intersectionBuffer = new ListBuffer<JCTree.JCExpression>();
-//            bounds.forEach(current -> intersectionBuffer.add(generateType(base, previous, current)));
-//            var call = externalMethodInvocation(
-//                -1,
-//                "of",
-//                syms.intersectionTypeArgs,
-//                syms.intersectionTypeArgs,
-//                List.of(types.makeArrayType(syms.argBaseType))
-//            );
-//            call.args = intersectionBuffer.toList();
-//            return call;
-//        }
-//    }
 
     /**
      * Copy the given constructor without its body.
@@ -540,12 +516,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
     // region Basic method rewriting
 
-    private void rewriteBasicMethod(
-        JCTree.JCClassDecl tree,
-        JCTree.JCMethodDecl method,
-        Map<Symbol, ArgFieldData> fields,
-        boolean isClassParameterized
-    ) {
+    private void rewriteBasicMethod(JCTree.JCClassDecl tree, JCTree.JCMethodDecl method) {
         var isMethodParameterized = !method.typarams.isEmpty();
 
         if (isMethodParameterized) {
@@ -564,10 +535,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
             );
         }
 
-        parameterizedMethodCallVisitor.visitMethod(method);
+        var ignoreCasts = syms.typeOperationsType.equals(method.sym.owner.type);
+        parameterizedMethodCallVisitor.visitMethod(method, ignoreCasts);
     }
 
     private class ParameterizedMethodCallVisitor extends TreeTranslator {
+
+        private boolean shouldIgnoreCasts = false;
 
         @Override
         public void visitApply(JCTree.JCMethodInvocation tree) {
@@ -584,10 +558,20 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
             var methodType = tree.meth.type.asMethodType();
             var call = methodTypeArgsInvocation(-1);
-            call.args = argTypeParam(methodType.inferredTypes);
-            // TODO not sure about this
-            var t = tree.meth.type.asMethodType();
-            t.argtypes = t.argtypes.prepend(call.type);
+
+            // by default, we try to use the provided type arguments Foo.<String>foo();, but if none are provided, we
+            // use the inferred types `String s = foo();`
+            if (tree.typeargs.isEmpty()) {
+                call.args = argTypeParam(methodType.inferredTypes);
+            } else {
+                var buffer = new ListBuffer<JCTree.JCExpression>();
+                tree.typeargs.forEach(t -> buffer.add(generateArgs(null, t.type)));
+                call.args = buffer.toList();
+            }
+
+            if (!syms.methodTypeArgs.equals(methodType.argtypes.head)) {
+                methodType.argtypes = methodType.argtypes.prepend(syms.methodTypeArgs);
+            }
 
             tree.args = tree.args.prepend(call);
         }
@@ -622,6 +606,27 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
 
             tree.args = tree.args.prepend(call);
+        }
+
+        @Override
+        public void visitTypeCast(JCTree.JCTypeCast tree) {
+            super.visitTypeCast(tree);
+            if (shouldIgnoreCasts) {
+                return;
+            }
+
+            var call = externalMethodInvocation(
+                -1,
+                "checkCast",
+                syms.typeOperationsType,
+                syms.objectType,
+                List.of(syms.objectType, syms.argBaseType),
+                make::Ident
+            );
+
+            var args = generateArgs(null, tree.clazz.type);
+            call.args = List.of(tree.expr, args);
+            tree.expr = call;
         }
 
         private List<JCTree.JCExpression> argTypeParam(List<Type> types) {
@@ -753,7 +758,8 @@ public final class TransParameterizedTypes extends TreeTranslator {
             return res;
         }
 
-        public void visitMethod(JCTree.JCMethodDecl method) {
+        public void visitMethod(JCTree.JCMethodDecl method, boolean shouldIgnoreCasts) {
+            this.shouldIgnoreCasts = shouldIgnoreCasts;
             method.body.accept(this);
         }
 

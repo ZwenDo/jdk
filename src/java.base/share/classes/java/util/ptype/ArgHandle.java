@@ -1,6 +1,7 @@
 package java.util.ptype;
 
 import java.lang.invoke.MethodHandle;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -63,8 +64,9 @@ public interface ArgHandle {
 
     private static String typeArgsFieldName(Class<?> clazz) {
         var pkg = clazz.getPackageName();
-        var name = clazz.getName().substring(pkg.length() + 1).replace('.', '$');
-        return "typeArgs$" + pkg.replace('.', '$') + "$$" + name ;
+        var substringSize = pkg.isEmpty() ? 0 : pkg.length() + 1;
+        var name = clazz.getName().substring(substringSize).replace('.', '$');
+        return "0$typeArgs$" + pkg.replace('.', '$') + "$$" + name ;
     }
 
 }
