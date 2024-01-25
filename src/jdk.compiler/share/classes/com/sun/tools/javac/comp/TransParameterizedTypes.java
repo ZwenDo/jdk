@@ -20,10 +20,8 @@ import com.sun.tools.javac.util.Log;
 import com.sun.tools.javac.util.Name;
 import com.sun.tools.javac.util.Names;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -77,7 +75,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             result = tree;
             return;
         }
-        debug("Visiting class ", tree.name);
+
         var isClassParameterized = tree.sym.type.isParameterized();
         Map<Symbol, TransParameterizedTypes.ArgFieldData> fields;
         if (isClassParameterized) {
@@ -162,6 +160,9 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var fieldSym = new Symbol.VarSymbol(fieldFlags, fieldName, syms.argBaseType, tree.sym);
         baseField.sym = fieldSym;
         baseField.type = syms.argBaseType;
+//        can not uncomment this because Resolve.resolveInternalField ignores synthetic fields
+//        baseField.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
+//        baseField.sym.flags_field |= Flags.SYNTHETIC | Flags.MANDATED;
 
         tree.sym.members_field.enter(fieldSym);
         tree.defs = tree.defs.append(baseField);
@@ -182,7 +183,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             var method = (JCTree.JCMethodDecl) member;
 
             if (TreeInfo.isConstructor(member)) {
-                if (isClassParameterized) {
+                if (isClassParameterized) { // TODO visit anyway but only work with field if this is true (need to visit the body in any case)
                     rewriteConstructor(tree, method, fields);
                 }
             } else {
@@ -631,23 +632,22 @@ public final class TransParameterizedTypes extends TreeTranslator {
                     call.args = List.of(generateArgs(current, arrayType.elemtype));
                     yield call;
                 }
-                case WILDCARD -> { // ? / ? extends Foo / ? super Foo
+                case WILDCARD -> { // <?> / <? extends Foo> / <? super Foo>
                     var wildcardType = (Type.WildcardType) current;
                     var call = wildcardTypeOfInvocation(wildcardType.kind == BoundKind.SUPER, -1);
-                    Type bound;
-                    if (wildcardType.isUnbound()) {
-                        // TODO fetch the default upper bound
-                        var index = previous.allparams().indexOf(current);
-                        if (true) {
-                            var sym = (Symbol.ClassSymbol) previous.tsym;
-                            var symbol = sym.getTypeParameters().get(index);
-                            throw new AssertionError(sym);
-                        }
-                        bound = null;
-                    } else {
-                        bound = wildcardType.isSuperBound() ? wildcardType.getSuperBound() : wildcardType.getExtendsBound();
+                    if (!wildcardType.isUnbound()) { // <? extends Foo> / <? super Foo>
+                        var bound = wildcardType.isSuperBound() ? wildcardType.getSuperBound() : wildcardType.getExtendsBound();
+                        call.args = List.of(generateArgs(current, bound));
+                        yield call;
                     }
-                    call.args = List.of(generateArgs(current, bound));
+                    // <?>
+                    var index = previous.allparams().indexOf(current);
+                    var sym = (Symbol.ClassSymbol) previous.tsym;
+                    var typeVarSym = sym.getTypeParameters().get(index);
+                    var bounds = typeVarSym.getBounds();
+                    var buffer = new ListBuffer<JCTree.JCExpression>();
+                    bounds.forEach(b -> buffer.add(generateArgs(current, b)));
+                    call.args = buffer.toList();
                     yield call;
                 }
                 case CLASS -> { // Foo / Foo<E> / Foo(raw)
