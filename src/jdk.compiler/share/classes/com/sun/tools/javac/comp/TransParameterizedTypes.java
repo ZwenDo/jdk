@@ -183,9 +183,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             var method = (JCTree.JCMethodDecl) member;
 
             if (TreeInfo.isConstructor(member)) {
-                if (isClassParameterized) { // TODO visit anyway but only work with field if this is true (need to visit the body in any case)
-                    rewriteConstructor(tree, method, fields);
-                }
+                rewriteConstructor(tree, method, fields, isClassParameterized);
             } else {
                 rewriteBasicMethod(tree, method, fields, isClassParameterized);
             }
@@ -196,6 +194,19 @@ public final class TransParameterizedTypes extends TreeTranslator {
     // region Constructor rewriting
 
     private void rewriteConstructor(
+        JCTree.JCClassDecl tree,
+        JCTree.JCMethodDecl method,
+        Map<Symbol, ArgFieldData> fields,
+        boolean isClassParameterized
+    ) {
+        if (isClassParameterized) {
+            writeParameterizedClassConstructor(tree, method, fields);
+        }
+
+        parameterizedMethodCallVisitor.visitMethod(method);
+    }
+
+    private void writeParameterizedClassConstructor(
         JCTree.JCClassDecl tree,
         JCTree.JCMethodDecl method,
         Map<Symbol, ArgFieldData> fields
@@ -613,11 +624,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
             tree.args = tree.args.prepend(call);
         }
 
-        @Override
-        public void visitNewArray(JCTree.JCNewArray tree) {
-            super.visitNewArray(tree);
-        }
-
         private List<JCTree.JCExpression> argTypeParam(List<Type> types) {
             var buffer = new ListBuffer<JCTree.JCExpression>();
             types.forEach(t -> buffer.prepend(generateArgs(null, t)));
@@ -625,15 +631,14 @@ public final class TransParameterizedTypes extends TreeTranslator {
         }
 
         private JCTree.JCMethodInvocation generateArgs(Type previous, Type current) {
-            var res = switch (current.getTag()) {
-                case ARRAY -> { // Foo[]
+            var res = switch (current) {
+                case Type.ArrayType ignored -> { // Foo[]
                     var call = arrayTypeOfInvocation(-1);
                     var arrayType = (Type.ArrayType) current;
                     call.args = List.of(generateArgs(current, arrayType.elemtype));
                     yield call;
                 }
-                case WILDCARD -> { // <?> / <? extends Foo> / <? super Foo>
-                    var wildcardType = (Type.WildcardType) current;
+                case Type.WildcardType wildcardType -> { // <?> / <? extends Foo> / <? super Foo>
                     var call = wildcardTypeOfInvocation(wildcardType.kind == BoundKind.SUPER, -1);
                     if (!wildcardType.isUnbound()) { // <? extends Foo> / <? super Foo>
                         var bound = wildcardType.isSuperBound() ? wildcardType.getSuperBound() : wildcardType.getExtendsBound();
@@ -650,7 +655,21 @@ public final class TransParameterizedTypes extends TreeTranslator {
                     call.args = buffer.toList();
                     yield call;
                 }
-                case CLASS -> { // Foo / Foo<E> / Foo(raw)
+                case Type.IntersectionClassType intersectionClassType -> {
+                    var call = externalMethodInvocation(
+                        -1,
+                        "of",
+                        syms.intersectionTypeArgs,
+                        syms.intersectionTypeArgs,
+                        List.of(types.makeArrayType(syms.argBaseType)),
+                        make::Ident
+                    );
+                    var buffer = new ListBuffer<JCTree.JCExpression>();
+                    intersectionClassType.getComponents().forEach(c -> buffer.add(generateArgs(current, c)));
+                    call.args = buffer.toList();
+                    yield call;
+                }
+                case Type.ClassType ignored -> { // Foo / Foo<E> / Foo(raw)
                     var classFieldAcc = make.Select(
                         make.Ident(current.tsym),
                         syms.getClassField(current, types)
@@ -682,7 +701,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                         yield call;
                     }
                 }
-                case TYPEVAR -> {
+                case Type.TypeVar ignored -> {
                     var owner = current.tsym.owner;
                     var index = owner.type.getTypeArguments().indexOf(current);
                     yield switch (owner) {
@@ -704,7 +723,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                             call.args = List.of(make.Literal(index));
                             yield call;
                         }
-                        case Symbol.ClassSymbol ignored -> {
+                        case Symbol.ClassSymbol ignored1 -> {
                             var name = computeArgName(owner);
                             var symbol = resolve.resolveInternalField(
                                 new JCDiagnostic.SimpleDiagnosticPosition(-1),
