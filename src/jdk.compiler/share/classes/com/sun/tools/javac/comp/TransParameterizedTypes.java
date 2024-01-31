@@ -70,12 +70,12 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
     @Override
     public void visitClassDef(JCTree.JCClassDecl tree) {
-        // generate the base arg field
-        if (!tree.name.contentEquals("Foo")) {
-            result = tree;
-            return;
-        }
+        result = tree;
+        if (!tree.name.contentEquals("Foo")) return;
+        rewriteClass(tree);
+    }
 
+    private void rewriteClass(JCTree.JCClassDecl tree) {
         var isClassParameterized = tree.sym.type.isParameterized();
         Map<Symbol, TransParameterizedTypes.ArgFieldData> fields;
         if (isClassParameterized) {
@@ -83,9 +83,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         } else {
             fields = Map.of();
         }
-        rewriteMethods(tree, fields, isClassParameterized);
-
-        result = tree;
+        rewriteDefs(tree, fields, isClassParameterized);
     }
 
     // region Base arg field generation
@@ -165,31 +163,47 @@ public final class TransParameterizedTypes extends TreeTranslator {
 //        baseField.sym.flags_field |= Flags.SYNTHETIC | Flags.MANDATED;
 
         tree.sym.members_field.enter(fieldSym);
-        tree.defs = tree.defs.append(baseField);
+        tree.defs = tree.defs.prepend(baseField); // important to prepend the defs to be able to skip them later
         return baseField;
     }
 
     // endregion
 
-    private void rewriteMethods(
+    private void rewriteDefs(
         JCTree.JCClassDecl tree,
         Map<Symbol, ArgFieldData> fields,
         boolean isClassParameterized
     ) {
-        for (var member : tree.defs) {
-            if (member.getKind() != Tree.Kind.METHOD) {
-                continue;
-            }
-            var method = (JCTree.JCMethodDecl) member;
+        var iterator = tree.defs.iterator();
+        for (var i = 0; i < fields.size(); i++) { // skip the fields we just added
+            iterator.next();
+        }
+        while (iterator.hasNext()) {
+            var member = iterator.next();
 
-            if (TreeInfo.isConstructor(member)) {
-                rewriteConstructor(tree, method, fields, isClassParameterized);
-            } else {
-                rewriteBasicMethod(tree, method);
-            }
+            switch (member.getKind()) {
+                case METHOD -> {
+                    var method = (JCTree.JCMethodDecl) member;
 
+                    if (TreeInfo.isConstructor(member)) {
+                        rewriteConstructor(tree, method, fields, isClassParameterized);
+                    } else {
+                        rewriteBasicMethod(tree, method);
+                    }
+                }
+                case CLASS -> { // TODO add a queue to avoid too much recursion
+                    var clazz = (JCTree.JCClassDecl) member;
+                    rewriteClass(clazz);
+                }
+                case VARIABLE -> {
+                    var variable = (JCTree.JCVariableDecl) member;
+                    debug("Rewriting field", variable.name);
+                }
+            }
         }
     }
+
+
 
     // region Constructor rewriting
 
@@ -546,6 +560,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         @Override
         public void visitApply(JCTree.JCMethodInvocation tree) {
             super.visitApply(tree);
+            result = tree;
 
             var sym = (Symbol.MethodSymbol) TreeInfo.symbol(tree.meth);
             if (sym == null) {
@@ -579,6 +594,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         @Override
         public void visitNewClass(JCTree.JCNewClass tree) {
             super.visitNewClass(tree);
+            result = tree;
 
             var sym = (Symbol.MethodSymbol) tree.constructor;
             var clazz = sym.owner;
@@ -611,6 +627,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         @Override
         public void visitTypeCast(JCTree.JCTypeCast tree) {
             super.visitTypeCast(tree);
+            result = tree;
             if (shouldIgnoreCasts) {
                 return;
             }
@@ -627,6 +644,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
             var args = generateArgs(null, tree.clazz.type);
             call.args = List.of(tree.expr, args);
             tree.expr = call;
+        }
+
+        @Override
+        public void visitClassDef(JCTree.JCClassDecl tree) {
+//            super.visitClassDef(tree); // TODO it should not be necessary to call super here (???)
+            rewriteClass(tree);
+            result = tree;
         }
 
         private List<JCTree.JCExpression> argTypeParam(List<Type> types) {
@@ -758,9 +782,16 @@ public final class TransParameterizedTypes extends TreeTranslator {
             return res;
         }
 
+        private JCTree root;
+
         public void visitMethod(JCTree.JCMethodDecl method, boolean shouldIgnoreCasts) {
+            var oldRoot = this.root;
+            this.root = method;
+            var old = this.shouldIgnoreCasts;
             this.shouldIgnoreCasts = shouldIgnoreCasts;
             method.body.accept(this);
+            this.root = oldRoot;
+            this.shouldIgnoreCasts = old;
         }
 
     }
@@ -854,7 +885,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         );
     }
 
-
     private JCTree.JCMethodInvocation innerClassTypeOfInvocation(int pos) {
         return externalMethodInvocation(
             pos,
@@ -912,10 +942,9 @@ public final class TransParameterizedTypes extends TreeTranslator {
             depth++;
         }
         var synChar = target.syntheticNameChar();
-        var strName = depth + synChar + "methodTypeArgs";
+        var strName = Integer.toString(depth) + synChar + "methodTypeArgs";
         return names.fromString(strName);
     }
-
 
     private record ArgFieldData(JCTree.JCVariableDecl field, JCTree.JCTypeApply typeApply) {
     }

@@ -85,16 +85,20 @@ public final class TypeOperations {
     }
 
     private static String classCastExceptionMessage(Object obj, Arg expected) {
-        var builder = new StringBuilder("Cannot cast ");
         var objClass = obj.getClass();
-        var type = Internal.argHandle(objClass)
+
+        var builder = new StringBuilder("Cannot cast ")
+            .append(obj)
+            .append(" (");
+
+        Internal.argHandle(objClass)
             .arg(obj, objClass)
-            .map(arg -> (Object) arg)
-            .orElse(objClass);
-        builder.append(obj)
-            .append(" of type (")
-            .append(type)
-            .append(") to ");
+            .ifPresentOrElse(
+                arg -> arg.appendTo(builder),
+                () -> builder.append(objClass.getName())
+            );
+
+        builder.append(") to ");
         expected.appendTo(builder);
         return builder.toString();
     }
