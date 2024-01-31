@@ -54,6 +54,8 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return instance;
     }
 
+    public static Log _log;
+
     @SuppressWarnings("this-escape")
     private TransParameterizedTypes(Context context) {
         context.put(typeReifierKey, this);
@@ -64,6 +66,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         resolve = Resolve.instance(context);
         types = Types.instance(context);
         log = Log.instance(context);
+        _log = log;
         env = Attr.instance(context).env;
         parameterizedMethodCallVisitor = new ParameterizedMethodCallVisitor();
     }
@@ -84,6 +87,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
             fields = Map.of();
         }
         rewriteDefs(tree, fields, isClassParameterized);
+        fields.forEach((__, data) -> {
+            var f = data.field();
+            f.mods.flags |= Flags.SYNTHETIC | Flags.MANDATED;
+            f.sym.flags_field |= Flags.SYNTHETIC | Flags.MANDATED;
+        });
     }
 
     // region Base arg field generation
@@ -438,17 +446,15 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         var baseArg = constructor.params.getFirst().sym;
         fields.forEach((sym, data) -> {
+            var fieldAccess = make.Select(make.This(tree.type), data.field().sym);
             if (tree.sym.equals(sym)) { // base field
-                var assign = make.Assign(
-                    make.Ident(data.field().sym),
-                    make.Ident(baseArg)
-                );
+                var assign = make.Assign(fieldAccess, make.Ident(baseArg));
                 buffer.prepend(make.Exec(assign));
                 return;
             }
 
             var call = createSuperFromConcrete(tree, baseArg, data);
-            var assign = make.Assign(make.Ident(data.field().sym), call);
+            var assign = make.Assign(fieldAccess, call);
             buffer.prepend(make.Exec(assign));
         });
 
@@ -966,7 +972,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var str = Stream.of(o)
             .map(String::valueOf)
             .collect(Collectors.joining(", "));
-        log.rawWarning(-1, str);
+        log.printRawLines(str);
     }
 
 }
