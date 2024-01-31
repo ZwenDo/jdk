@@ -1,6 +1,5 @@
 package com.sun.tools.javac.comp;
 
-import com.sun.source.tree.Tree;
 import com.sun.tools.javac.code.BoundKind;
 import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.code.Symbol;
@@ -42,7 +41,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
     private final Types types;
     private final Log log;
     private Env<AttrContext> env = null;
-    private final ParameterizedMethodCallVisitor parameterizedMethodCallVisitor;
+    private final InstructionVisitor parameterizedMethodCallVisitor;
 
     /**
      * Get the instance for this context.
@@ -68,7 +67,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         log = Log.instance(context);
         _log = log;
         env = Attr.instance(context).env;
-        parameterizedMethodCallVisitor = new ParameterizedMethodCallVisitor();
+        parameterizedMethodCallVisitor = new InstructionVisitor();
     }
 
     @Override
@@ -189,8 +188,8 @@ public final class TransParameterizedTypes extends TreeTranslator {
         while (iterator.hasNext()) {
             var member = iterator.next();
 
-            switch (member.getKind()) {
-                case METHOD -> {
+            switch (member.getTag()) {
+                case METHODDEF -> {
                     var method = (JCTree.JCMethodDecl) member;
 
                     if (TreeInfo.isConstructor(member)) {
@@ -199,19 +198,12 @@ public final class TransParameterizedTypes extends TreeTranslator {
                         rewriteBasicMethod(tree, method);
                     }
                 }
-                case CLASS -> { // TODO add a queue to avoid too much recursion
-                    var clazz = (JCTree.JCClassDecl) member;
-                    rewriteClass(clazz);
-                }
-                case VARIABLE -> {
-                    var variable = (JCTree.JCVariableDecl) member;
-                    debug("Rewriting field", variable.name);
-                }
+                // TODO add the class to a queue, to avoid too much recursion
+                case CLASSDEF -> rewriteClass((JCTree.JCClassDecl) member);
+                case VARDEF -> parameterizedMethodCallVisitor.visitVarDef((JCTree.JCVariableDecl) member);
             }
         }
     }
-
-
 
     // region Constructor rewriting
 
@@ -225,7 +217,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             writeParameterizedClassConstructor(tree, method, fields);
         }
 
-        parameterizedMethodCallVisitor.visitMethod(method, false);
+        parameterizedMethodCallVisitor.visitMethod(method);
     }
 
     private void writeParameterizedClassConstructor(
@@ -555,11 +547,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
             );
         }
 
-        var ignoreCasts = syms.typeOperationsType.equals(method.sym.owner.type);
-        parameterizedMethodCallVisitor.visitMethod(method, ignoreCasts);
+        parameterizedMethodCallVisitor.visitMethod(method);
     }
 
-    private class ParameterizedMethodCallVisitor extends TreeTranslator {
+    class InstructionVisitor extends TreeTranslator {
 
         private boolean shouldIgnoreCasts = false;
 
@@ -657,6 +648,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
 //            super.visitClassDef(tree); // TODO it should not be necessary to call super here (???)
             rewriteClass(tree);
             result = tree;
+        }
+
+        @Override
+        public void visitLambda(JCTree.JCLambda tree) {
+            throw new UnsupportedOperationException("Lambda not supported yet");
         }
 
         private List<JCTree.JCExpression> argTypeParam(List<Type> types) {
@@ -768,7 +764,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
                             );
 
                             var call = getGetArgInvocation(-1);
-                            call.args = List.of(make.Ident(symbol), make.Literal(index));
+                            call.args = List.of(
+                                make.Ident(symbol),
+                                make.Literal(index)
+                            );
                             yield call;
                         }
                         default -> throw new AssertionError("Unhandled type " + owner + " (" + owner.getClass() + ")");
@@ -788,15 +787,17 @@ public final class TransParameterizedTypes extends TreeTranslator {
             return res;
         }
 
-        private JCTree root;
-
-        public void visitMethod(JCTree.JCMethodDecl method, boolean shouldIgnoreCasts) {
-            var oldRoot = this.root;
-            this.root = method;
+        public void visitField(JCTree.JCVariableDecl field) {
             var old = this.shouldIgnoreCasts;
-            this.shouldIgnoreCasts = shouldIgnoreCasts;
+            this.shouldIgnoreCasts = syms.typeOperationsType.equals(field.sym.owner.type);
+            field.init.accept(this);
+            this.shouldIgnoreCasts = old;
+        }
+
+        public void visitMethod(JCTree.JCMethodDecl method) {
+            var old = this.shouldIgnoreCasts;
+            this.shouldIgnoreCasts = syms.typeOperationsType.equals(method.sym.owner.type);
             method.body.accept(this);
-            this.root = oldRoot;
             this.shouldIgnoreCasts = old;
         }
 
