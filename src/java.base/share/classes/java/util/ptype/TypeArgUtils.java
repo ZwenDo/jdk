@@ -80,11 +80,13 @@ public final class TypeArgUtils {
      *
      * @param array     the array
      * @param arrayType the {@link Arg} representing the array
+     * @return the array
      */
-    public static void addArrayTypeArg(Object array, ArrayType arrayType) {
+    public static Object addArrayTypeArg(Object array, ArrayType arrayType) {
         Objects.requireNonNull(array);
         Objects.requireNonNull(arrayType);
         Internal.addArrayTypeArg(array, arrayType);
+        return array;
     }
 
     /**

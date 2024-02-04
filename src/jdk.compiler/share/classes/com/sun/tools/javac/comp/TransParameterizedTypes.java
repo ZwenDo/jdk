@@ -628,15 +628,26 @@ public final class TransParameterizedTypes extends TreeTranslator {
             if (shouldIgnoreCasts) {
                 return;
             }
-
-            var call = externalMethodInvocation(
-                -1,
-                "checkCast",
-                syms.typeOperationsType,
-                syms.objectType,
-                List.of(syms.objectType, syms.argBaseType),
-                make::Ident
-            );
+            JCTree.JCMethodInvocation call;
+            if (tree.expr.hasTag(JCTree.Tag.NEWARRAY)) { // if the cast is on a new array, we add the type arg
+                call = externalMethodInvocation(
+                    -1,
+                    "addArrayTypeArg",
+                    syms.typeArgUtils,
+                    syms.objectType,
+                    List.of(syms.objectType, syms.arrayTypeArgs),
+                    make::Ident
+                );
+            } else { // otherwise, we replace the cast
+                call = externalMethodInvocation(
+                    -1,
+                    "checkCast",
+                    syms.typeOperationsType,
+                    syms.objectType,
+                    List.of(syms.objectType, syms.argBaseType),
+                    make::Ident
+                );
+            }
 
             var args = generateArgs(null, tree.clazz.type);
             call.args = List.of(tree.expr, args);
