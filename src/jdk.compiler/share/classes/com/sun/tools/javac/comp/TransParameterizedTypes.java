@@ -53,8 +53,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return instance;
     }
 
-    public static Log _log;
-
     @SuppressWarnings("this-escape")
     private TransParameterizedTypes(Context context) {
         context.put(typeReifierKey, this);
@@ -65,7 +63,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         resolve = Resolve.instance(context);
         types = Types.instance(context);
         log = Log.instance(context);
-        _log = log;
         env = Attr.instance(context).env;
         parameterizedMethodCallVisitor = new InstructionVisitor();
     }
