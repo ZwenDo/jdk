@@ -27,6 +27,7 @@ package java.lang.invoke;
 import sun.invoke.util.Wrapper;
 
 import java.lang.reflect.Modifier;
+import java.util.ptype.Arg;
 
 import static java.lang.invoke.MethodHandleInfo.*;
 import static sun.invoke.util.Wrapper.forPrimitiveType;
@@ -69,6 +70,7 @@ import static sun.invoke.util.Wrapper.isWrapperType;
     final boolean isSerializable;             // Should the returned instance be serializable
     final Class<?>[] altInterfaces;           // Additional interfaces to be implemented
     final MethodType[] altMethods;            // Signatures of additional methods to bridge
+    final boolean isFromParameterizedInterface;     // Is the interface represented by this lambda a parameterized type "true"
 
 
     /**
@@ -129,6 +131,8 @@ import static sun.invoke.util.Wrapper.isWrapperType;
         this.caller = caller;
         this.targetClass = caller.lookupClass();
         this.factoryType = factoryType;
+        this.isFromParameterizedInterface = factoryType.parameterCount() > 0 && Arg.class.equals(factoryType.parameterType(0));
+
 
         this.interfaceClass = factoryType.returnType();
 
@@ -225,7 +229,8 @@ import static sun.invoke.util.Wrapper.isWrapperType;
     void validateMetafactoryArgs() throws LambdaConversionException {
         // Check arity: captured + SAM == impl
         final int implArity = implMethodType.parameterCount();
-        final int capturedArity = factoryType.parameterCount();
+        // If the factory type is a parameterized interface, ignore the first parameter which is the Type
+        final int capturedArity = isFromParameterizedInterface ? factoryType.parameterCount() - 1 : factoryType.parameterCount();
         final int samArity = interfaceMethodType.parameterCount();
         final int dynamicArity = dynamicMethodType.parameterCount();
         if (implArity != capturedArity + samArity) {
@@ -264,7 +269,7 @@ import static sun.invoke.util.Wrapper.isWrapperType;
                 // receiver is a captured variable
                 capturedStart = 1;
                 samStart = capturedArity;
-                receiverClass = factoryType.parameterType(0);
+                receiverClass = factoryType.parameterType(isFromParameterizedInterface ? 1 : 0);
             }
 
             // check receiver type
@@ -282,7 +287,7 @@ import static sun.invoke.util.Wrapper.isWrapperType;
         // Check for exact match on non-receiver captured arguments
         for (int i=capturedStart; i<capturedArity; i++) {
             Class<?> implParamType = implMethodType.parameterType(i);
-            Class<?> capturedParamType = factoryType.parameterType(i);
+            Class<?> capturedParamType = factoryType.parameterType(isFromParameterizedInterface ? i + 1 : i);
             if (!capturedParamType.equals(implParamType)) {
                 throw new LambdaConversionException(
                         String.format("Type mismatch in captured lambda parameter %d: expecting %s, found %s",

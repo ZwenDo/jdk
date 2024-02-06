@@ -25,6 +25,7 @@
 
 package com.sun.tools.javac.comp;
 
+import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.code.Symbol.MethodHandleSymbol;
 import com.sun.tools.javac.code.Types.SignatureGenerator.InvalidSignatureException;
 import com.sun.tools.javac.jvm.PoolConstant.LoadableConstant;
@@ -97,6 +98,7 @@ public class LambdaToMethod extends TreeTranslator {
     private TreeMaker make;
     private Types types;
     private TransTypes transTypes;
+    private final TransParameterizedTypes transParameterizedTypes;
     private Env<AttrContext> attrEnv;
 
     /** the analyzer scanner */
@@ -160,6 +162,7 @@ public class LambdaToMethod extends TreeTranslator {
         make = TreeMaker.instance(context);
         types = Types.instance(context);
         transTypes = TransTypes.instance(context);
+        transParameterizedTypes = TransParameterizedTypes.instance(context);
         analyzer = new LambdaAnalyzerPreprocessor();
         Options options = Options.instance(context);
         dumpLambdaToMethodStats = options.isSet("debug.dumpLambdaToMethodStats");
@@ -418,6 +421,10 @@ public class LambdaToMethod extends TreeTranslator {
 
         ListBuffer<JCExpression> syntheticInits = new ListBuffer<>();
 
+        if (tree.target.isParameterized()) {
+            syntheticInits.append(transParameterizedTypes.generateArgs(tree.target, make, attrEnv));
+        }
+
         if (localContext.methodReferenceReceiver != null) {
             syntheticInits.append(localContext.methodReferenceReceiver);
         } else if (!sym.isStatic()) {
@@ -518,8 +525,14 @@ public class LambdaToMethod extends TreeTranslator {
                 throw new InternalError("Should not have an invalid kind");
         }
 
-        List<JCExpression> indy_args = init==null? List.nil() : translate(List.of(init), localContext.prev);
-
+        var syntheticInits = new ListBuffer<JCExpression>();
+        if (tree.target.isParameterized()) {
+            syntheticInits.append(transParameterizedTypes.generateArgs(tree.target, make, attrEnv));
+        }
+        if (init != null) {
+            syntheticInits.append(init);
+        }
+        List<JCExpression> indy_args = translate(syntheticInits.toList(), localContext.prev);
 
         //build a sam instance using an indy call to the meta-factory
         result = makeMetafactoryIndyCall(localContext, refSym.asHandle(), indy_args);

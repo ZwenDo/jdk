@@ -2597,6 +2597,10 @@ public class CreateSymbols {
                 ((MethodDescription) feature).classParameterAnnotations =
                         parameterAnnotations2Description(cf.constant_pool, attr);
                 break;
+            case "NewGenerics": {
+                // Do nothing for now
+                break;
+            }
             case Attribute.Module: {
                 assert feature instanceof ModuleHeaderDescription;
                 ModuleHeaderDescription header =

@@ -37,6 +37,7 @@ import java.lang.constant.ConstantDescs;
 import java.lang.reflect.Modifier;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.ptype.TypeArgUtils;
 
 import static java.lang.invoke.MethodHandleStatics.CLASSFILE_VERSION;
 import static java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE;
@@ -187,7 +188,13 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
         if (parameterCount > 0) {
             argNames = new String[parameterCount];
             argDescs = new String[parameterCount];
-            for (int i = 0; i < parameterCount; i++) {
+            int start = 0;
+            if (isFromParameterizedInterface) {
+                argNames[0] = TypeArgUtils.typeArgsFieldName(targetClass);
+                argDescs[0] = BytecodeDescriptor.unparse(factoryType.parameterType(0));
+                start = 1;
+            }
+            for (int i = start; i < parameterCount; i++) {
                 argNames[i] = "arg$" + (i + 1);
                 argDescs[i] = BytecodeDescriptor.unparse(factoryType.parameterType(i));
             }
@@ -230,7 +237,7 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
         } else {
             try {
                 MethodHandle mh = caller.findConstructor(innerClass, constructorType);
-                if (factoryType.parameterCount() == 0) {
+                if (!isFromParameterizedInterface && factoryType.parameterCount() == 0) {
                     // In the case of a non-capturing lambda, we optimize linkage by pre-computing a single instance
                     Object inst = mh.asType(methodType(Object.class)).invokeExact();
                     return new ConstantCallSite(MethodHandles.constant(interfaceClass, inst));
@@ -545,7 +552,7 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
         private void convertArgumentTypes(MethodType samType) {
             int lvIndex = 0;
             int samParametersLength = samType.parameterCount();
-            int captureArity = factoryType.parameterCount();
+            int captureArity = isFromParameterizedInterface ? factoryType.parameterCount() - 1 : factoryType.parameterCount();
             for (int i = 0; i < samParametersLength; i++) {
                 Class<?> argType = samType.parameterType(i);
                 visitVarInsn(getLoadOpcode(argType), lvIndex + 1);

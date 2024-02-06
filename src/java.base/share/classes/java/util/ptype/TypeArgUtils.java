@@ -100,6 +100,20 @@ public final class TypeArgUtils {
         return Internal.arrayType(array);
     }
 
+    /**
+     * Gets the name of the field storing the type args of the given class.
+     *
+     * @param clazz the class
+     * @return the name of the field
+     */
+    public static String typeArgsFieldName(Class<?> clazz) {
+        Objects.requireNonNull(clazz);
+        var pkg = clazz.getPackageName();
+        var substringSize = pkg.isEmpty() ? 0 : pkg.length() + 1;
+        var name = clazz.getName().substring(substringSize).replace('.', '$');
+        return "0$typeArgs$" + pkg.replace('.', '$') + "$$" + name ;
+    }
+
     private static Arg getArgInternal(Arg concrete, int currentIndex, int... indices) {
         if (currentIndex == indices.length) { // base case
             return concrete;

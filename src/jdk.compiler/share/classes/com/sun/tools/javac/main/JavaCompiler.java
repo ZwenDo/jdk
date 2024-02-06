@@ -1511,7 +1511,6 @@ public class JavaCompiler {
             Set<Env<AttrContext>> dependencies = new LinkedHashSet<>();
             protected boolean hasLambdas;
             protected boolean hasPatterns;
-            protected boolean hasTypeParams;
             @Override
             public void visitClassDef(JCClassDecl node) {
                 Type st = types.supertype(node.sym.type);
@@ -1573,12 +1572,6 @@ public class JavaCompiler {
                 hasPatterns |= tree.patternSwitch;
                 super.visitSwitchExpression(tree);
             }
-
-            @Override
-            public void visitTypeParameter(JCTree.JCTypeParameter tree) {
-                hasTypeParams = true;
-                super.visitTypeParameter(tree);
-            }
         }
         ScanNested scanner = new ScanNested();
         scanner.scan(env.tree);
@@ -1621,15 +1614,7 @@ public class JavaCompiler {
             if (shouldStop(CompileState.TRANSPARAMETERIZEDTYPES))
                 return;
 
-            if (scanner.hasTypeParams) {
-                env.tree = TransParameterizedTypes.instance(context).translateTopLevelClass(env, env.tree, localMake);
-//                TODO remove this
-//                if (env.tree instanceof JCClassDecl classDecl) {
-//                    if (classDecl.name.contentEquals("Foo")) {
-//                        printNote(classDecl.defs.toString());
-//                    }
-//                }
-            }
+            env.tree = TransParameterizedTypes.instance(context).translateTopLevelClass(env, env.tree, localMake);
 
             compileStates.put(env, CompileState.TRANSPARAMETERIZEDTYPES);
 

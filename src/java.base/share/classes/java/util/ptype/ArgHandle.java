@@ -34,7 +34,7 @@ public interface ArgHandle {
                 protected Optional<MethodHandle> computeValue(Class<?> supertype) {
                     Objects.requireNonNull(supertype);
                     try {
-                        var name = typeArgsFieldName(supertype);
+                        var name = TypeArgUtils.typeArgsFieldName(supertype);
                         var getter = Internal.lookup().findGetter(type, name, Arg.class);
                         return Optional.of(getter);
                     } catch (NoSuchFieldException e) {
@@ -60,13 +60,6 @@ public interface ArgHandle {
             }
 
         };
-    }
-
-    private static String typeArgsFieldName(Class<?> clazz) {
-        var pkg = clazz.getPackageName();
-        var substringSize = pkg.isEmpty() ? 0 : pkg.length() + 1;
-        var name = clazz.getName().substring(substringSize).replace('.', '$');
-        return "0$typeArgs$" + pkg.replace('.', '$') + "$$" + name ;
     }
 
 }
