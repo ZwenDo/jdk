@@ -79,7 +79,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         try {
             currentClass = tree.sym;
             currentClassTree = tree;
-//            if (!tree.name.contentEquals("Foo")) return;
+            if (!tree.sym.owner.packge().name.contentEquals("foo")) return;
             rewriteClass(tree);
         } finally {
             currentClass = oldClass;

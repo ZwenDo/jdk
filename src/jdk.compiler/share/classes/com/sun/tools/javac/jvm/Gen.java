@@ -1909,7 +1909,7 @@ public class Gen extends JCTree.Visitor {
         MethodSymbol msym = (MethodSymbol)TreeInfo.symbol(tree.meth);
         var pts = msym.externalType(types).getParameterTypes(); // TODO fix for inner classes where typeArgs get prepended before the outer this
         if (
-            tree.isParameterized && (pts.isEmpty() || (!types.isSameType(syms.methodTypeArgs, pts.getFirst()) && !types.isSameType(syms.methodTypeArgs, pts.getFirst())))
+            tree.isParameterized && (pts.isEmpty() || (!types.isSameType(syms.methodTypeArgs, pts.getFirst()) && !types.isSameType(syms.argBaseType, pts.getFirst())))
         ) {
             var type = tree.args.getFirst().type;
             pts = pts.prepend(type);
@@ -2468,8 +2468,14 @@ public class Gen extends JCTree.Visitor {
             localEnv.toplevel = env.toplevel;
             localEnv.enclClass = cdef;
 
+            try {
+
             for (List<JCTree> l = cdef.defs; l.nonEmpty(); l = l.tail) {
                 genDef(l.head, localEnv);
+            }
+            } catch (Throwable t) {
+                log.printRawLines("class: " + cdef);
+                throw t;
             }
             if (poolWriter.size() > PoolWriter.MAX_ENTRIES) {
                 log.error(cdef.pos(), Errors.LimitPool);
