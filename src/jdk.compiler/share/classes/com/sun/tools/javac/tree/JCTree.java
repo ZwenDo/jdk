@@ -1803,6 +1803,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public JCExpression meth;
         public List<JCExpression> args;
         public Type varargsElement;
+        public boolean isParameterized; // to easily know if the method is parameterized even after the erasure (and not rely only on the first arg of the method)
         protected JCMethodInvocation(List<JCExpression> typeargs,
                         JCExpression meth,
                         List<JCExpression> args)
@@ -1854,6 +1855,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public Symbol constructor;
         public Type varargsElement;
         public Type constructorType;
+        public boolean isParameterized; // to easily know if the constructor is parameterized even after the erasure
         protected JCNewClass(JCExpression encl,
                            List<JCExpression> typeargs,
                            JCExpression clazz,

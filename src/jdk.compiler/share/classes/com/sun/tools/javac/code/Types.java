@@ -120,6 +120,7 @@ public class Types {
         messages = JavacMessages.instance(context);
         diags = JCDiagnostic.Factory.instance(context);
         noWarnings = new Warner(null);
+        logs = Log.instance(context);
     }
     // </editor-fold>
 
@@ -3106,6 +3107,7 @@ public class Types {
     }
     // </editor-fold>
 
+    private final Log logs;
 
     /** Return first abstract member of class `sym'.
      */
@@ -3128,11 +3130,19 @@ public class Types {
                     if (sym.kind == MTH &&
                         (sym.flags() & (ABSTRACT|DEFAULT|PRIVATE)) == ABSTRACT) {
                         MethodSymbol absmeth = (MethodSymbol)sym;
-                        MethodSymbol implmeth = absmeth.implementation(impl, this, true);
+                        MethodSymbol lookupAbstract = absmeth;
+                        if (absmeth.type instanceof ForAll forAll) {
+                            var params = forAll.getParameterTypes();
+                            if (!params.isEmpty() && isSameType(syms.methodTypeArgs, params.getFirst())) {
+                                lookupAbstract = absmeth.clone(absmeth.owner);
+                                lookupAbstract.params = lookupAbstract.params.tail;
+                            }
+                        }
+                        MethodSymbol implmeth = lookupAbstract.implementation(impl, this, true);
                         if (implmeth == null || implmeth == absmeth) {
                             //look for default implementations
                             MethodSymbol prov = interfaceCandidates(impl.type, absmeth).head;
-                            if (prov != null && prov.overrides(absmeth, impl, this, true)) {
+                            if (prov != null && prov.overrides(lookupAbstract, impl, this, true)) {
                                 implmeth = prov;
                             }
                         }

@@ -1907,8 +1907,15 @@ public class Gen extends JCTree.Visitor {
         // the parameters of the method's external type (that is, any implicit
         // outer instance of a super(...) call appears as first parameter).
         MethodSymbol msym = (MethodSymbol)TreeInfo.symbol(tree.meth);
-        genArgs(tree.args,
-                msym.externalType(types).getParameterTypes());
+        var pts = msym.externalType(types).getParameterTypes(); // TODO fix for inner classes where typeArgs get prepended before the outer this
+        if (
+            tree.isParameterized && (pts.isEmpty() || (!types.isSameType(syms.methodTypeArgs, pts.getFirst()) && !types.isSameType(syms.methodTypeArgs, pts.getFirst())))
+        ) {
+            var type = tree.args.getFirst().type;
+            pts = pts.prepend(type);
+            m.typeArg = type;
+        }
+        genArgs(tree.args, pts);
         if (!msym.isDynamic()) {
             code.statBegin(tree.pos);
         }
@@ -2000,9 +2007,18 @@ public class Gen extends JCTree.Visitor {
         // Generate code for all arguments, where the expected types are
         // the parameters of the constructor's external type (that is,
         // any implicit outer instance appears as first parameter).
-        genArgs(tree.args, tree.constructor.externalType(types).getParameterTypes());
+        var parameterTypes = tree.constructor.externalType(types).getParameterTypes();
+        var item = items.makeMemberItem(tree.constructor, true);
+        if (
+            tree.isParameterized && (parameterTypes.isEmpty() || !types.isSameType(syms.argBaseType, parameterTypes.getFirst()))
+        ) {
+            var type = tree.args.getFirst().type;
+            parameterTypes = parameterTypes.prepend(type);
+            item.typeArg = type;
+        }
+        genArgs(tree.args, parameterTypes);
 
-        items.makeMemberItem(tree.constructor, true).invoke();
+        item.invoke();
         result = items.makeStackItem(tree.type);
     }
 

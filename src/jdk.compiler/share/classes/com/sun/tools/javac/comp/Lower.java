@@ -3102,7 +3102,7 @@ public class Lower extends TreeTranslator {
         boolean isEnum = (tree.constructor.owner.flags() & ENUM) != 0;
         List<Type> argTypes = tree.constructor.type.getParameterTypes();
         if (isEnum) argTypes = argTypes.prepend(syms.intType).prepend(syms.stringType);
-        tree.args = boxArgs(argTypes, tree.args, tree.varargsElement);
+        tree.args = boxArgs(tree.isParameterized, argTypes, tree.args, tree.varargsElement);
         tree.varargsElement = null;
 
         // If created class is local, add free variables after
@@ -3294,7 +3294,7 @@ public class Lower extends TreeTranslator {
         List<Type> argtypes = meth.type.getParameterTypes();
         if (meth.name == names.init && meth.owner == syms.enumSym)
             argtypes = argtypes.tail.tail;
-        tree.args = boxArgs(argtypes, tree.args, tree.varargsElement);
+        tree.args = boxArgs(tree.isParameterized, argtypes, tree.args, tree.varargsElement);
         tree.varargsElement = null;
         Name methName = TreeInfo.name(tree.meth);
         if (meth.name==names.init) {
@@ -3369,8 +3369,11 @@ public class Lower extends TreeTranslator {
         result = tree;
     }
 
-    List<JCExpression> boxArgs(List<Type> parameters, List<JCExpression> _args, Type varargsElement) {
+    List<JCExpression> boxArgs(boolean isParameterized, List<Type> parameters, List<JCExpression> _args, Type varargsElement) {
         List<JCExpression> args = _args;
+        if (isParameterized && (parameters.isEmpty() || (!types.isSameType(syms.argBaseType, parameters.getFirst()) && !types.isSameType(syms.methodTypeArgs, parameters.getFirst())))) {
+            parameters = parameters.prepend(args.getFirst().type);
+        }
         if (parameters.isEmpty()) return args;
         boolean anyChanges = false;
         ListBuffer<JCExpression> result = new ListBuffer<>();

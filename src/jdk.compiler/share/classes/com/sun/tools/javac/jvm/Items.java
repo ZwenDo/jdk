@@ -194,6 +194,8 @@ public class Items {
      */
     abstract class Item {
 
+        Type typeArg;
+
         /** The type code of values represented by this item.
          */
         int typecode;
@@ -456,6 +458,9 @@ public class Items {
 
         Item invoke() {
             MethodType mtype = (MethodType)member.erasure(types);
+            if (typeArg != null) {
+                mtype.argtypes = mtype.argtypes.prepend(typeArg);
+            }
             int rescode = Code.typecode(mtype.restype);
             code.emitInvokestatic(member, mtype);
             return stackItem[rescode];
@@ -486,6 +491,9 @@ public class Items {
         Item invoke() {
             Assert.check(member.kind == Kinds.Kind.MTH);
             MethodType mtype = (MethodType)member.erasure(types);
+            if (typeArg != null) {
+                mtype.argtypes = mtype.argtypes.prepend(typeArg);
+            }
             int rescode = Code.typecode(mtype.restype);
             code.emitInvokedynamic((DynamicMethodSymbol)member, mtype);
             return stackItem[rescode];
@@ -525,6 +533,9 @@ public class Items {
 
         Item invoke() {
             MethodType mtype = (MethodType)member.externalType(types);
+            if (typeArg != null) {
+                mtype.argtypes = mtype.argtypes.prepend(typeArg);
+            }
             int rescode = Code.typecode(mtype.restype);
             if ((member.owner.flags() & Flags.INTERFACE) != 0 && !nonvirtual) {
                 code.emitInvokeinterface(member, mtype);
