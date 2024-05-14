@@ -1,6 +1,5 @@
 package java.util.ptype;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -47,7 +46,7 @@ public non-sealed interface ParameterizedType extends Arg {
                 builder.append("<");
                 var index = 0;
                 for (var arg : typeArgs()) {
-                    builder.append(arg.toString());
+                    arg.appendTo(builder);
                     index++;
                     if (index < typeArgs().size()) {
                         builder.append(", ");
@@ -62,8 +61,8 @@ public non-sealed interface ParameterizedType extends Arg {
                 return switch (actual) {
                     case ParameterizedType parameterizedType -> {
                         if ( // return false if the raw types are not assignable or if the number of type args is different
-                            !type.isAssignableFrom(parameterizedType.rawType())
-                                || argsCopy.size() != parameterizedType.typeArgs().size()
+                            !type.equals(parameterizedType.rawType())
+                            || argsCopy.size() != parameterizedType.typeArgs().size()
                         ) {
                             yield false;
                         }
@@ -80,26 +79,12 @@ public non-sealed interface ParameterizedType extends Arg {
 
                         yield true;
                     }
-                    case RawType rawType -> isAssignable(rawType.rawArg());
-                    case InnerClassType innerClassType -> isAssignable(innerClassType.innerType());
-                    case Wildcard wildcard -> IterableUtils.anyMatch(
-                        wildcard.upperBound(),
-                        this::isAssignable
-                    );
-                    case Intersection intersection -> IterableUtils.anyMatch(
-                        intersection.bounds(),
-                        this::isAssignable
-                    );
-                    case ClassType classType -> {
-                        var args = TypeArgUtils.getGenericSupertypes(classType.type());
-                        for (var arg : args) {
-                            if (isAssignable(arg)) { // if at least one bound is assignable, return true
-                                yield true;
-                            }
-                        }
-                        yield false;
-                    }
-                    case ArrayType a -> false;
+                    case RawType rawType -> type.equals(rawType.type());
+                    case Wildcard wildcard -> wildcard.upperBound().stream().anyMatch(this::isAssignable);
+                    case Intersection intersection -> intersection.bounds().stream().allMatch(this::isAssignable);
+                    case InnerClassType ignored -> false;
+                    case ClassType ignored -> false;
+                    case ArrayType ignored -> false;
                 };
             }
 
@@ -133,6 +118,7 @@ public non-sealed interface ParameterizedType extends Arg {
         if (args.length == 0) {
             throw new IllegalArgumentException("args is empty");
         }
+        // even if asList is not copying the array, it's fine, the overload makes a defensive copy of the list
         return of(type, Arrays.asList(args));
     }
 

@@ -107,6 +107,7 @@ public class Names {
     public final Name values;
     public final Name readResolve;
     public final Name readObject;
+    public final Name checkCast;
 
     // class names
     public final Name java_io_Serializable;
@@ -124,6 +125,8 @@ public class Names {
     public final Name java;
     public final Name java_lang;
     public final Name jdk_internal_javac;
+    public final Name java_util_ptype;
+
 
     // module names
     public final Name java_base;
@@ -295,6 +298,7 @@ public class Names {
         values = fromString("values");
         readResolve = fromString("readResolve");
         readObject = fromString("readObject");
+        checkCast = fromString("checkCast");
         dollarThis = fromString("$this");
 
         // class names
@@ -313,6 +317,7 @@ public class Names {
         java = fromString("java");
         java_lang = fromString("java.lang");
         jdk_internal_javac = fromString("jdk.internal.javac");
+        java_util_ptype = fromString("java.util.ptype");
 
         // module names
         java_base = fromString("java.base");

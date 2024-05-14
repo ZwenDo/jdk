@@ -1,7 +1,9 @@
 package java.util.ptype;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Utility methods for working with {@link Arg}s.
@@ -23,14 +25,14 @@ public final class TypeArgUtils {
             throw new IllegalArgumentException("indices.length == 0");
         }
         return switch (concrete) {
-            case RawType r -> toSuper(r.rawArg(), superType, indices);
+            case RawType ignored -> RawType.of(superType);
             case ParameterizedType p -> {
-                var list = IterableUtils.map(indices, p.typeArgs()::get);
-                yield ParameterizedType.of(superType, list);
+                var args = Arrays.stream(indices)
+                    .mapToObj(p.typeArgs()::get)
+                    .toList();
+                yield ParameterizedType.of(superType, args);
             }
             default -> throw new AssertionError("Unexpected value: " + concrete);
-//            case ArrayType _, ClassType _, InnerClassType _, Intersection _, Wildcard _ ->
-//                throw new AssertionError(STR."Unexpected value: \{concrete}");
         };
     }
 
@@ -95,7 +97,7 @@ public final class TypeArgUtils {
      * @param array the array
      * @return the {@link Arg}
      */
-    public static ArrayType arrayType(Object array) {
+    public static Optional<ArrayType> arrayType(Object array) {
         Objects.requireNonNull(array);
         return Internal.arrayType(array);
     }
@@ -111,7 +113,7 @@ public final class TypeArgUtils {
         var pkg = clazz.getPackageName();
         var substringSize = pkg.isEmpty() ? 0 : pkg.length() + 1;
         var name = clazz.getName().substring(substringSize).replace('.', '$');
-        return "0$typeArgs$" + pkg.replace('.', '$') + "$$" + name ;
+        return "0$typeArgs$" + pkg.replace('.', '$') + "$$" + name;
     }
 
     private static Arg getArgInternal(Arg concrete, int currentIndex, int... indices) {
@@ -119,7 +121,7 @@ public final class TypeArgUtils {
             return concrete;
         }
         return switch (concrete) {
-            case RawType r -> getArgInternal(r.rawArg(), currentIndex, indices);
+            case RawType ignored -> throw new IllegalArgumentException("RawType has no type args");
             case InnerClassType ict -> getArgInternal(ict.innerType(), currentIndex, indices);
             case ArrayType a -> getArgInternal(a.componentType(), currentIndex, indices);
             case ParameterizedType p -> {
@@ -128,10 +130,9 @@ public final class TypeArgUtils {
                 yield getArgInternal(list.get(indices[currentIndex]), currentIndex + 1, indices);
             }
             // wildcard and intersection are not supported because we are in the context of a concrete type
-            case Wildcard wc ->
-                throw new UnsupportedOperationException("Wildcard not supported"); //getArgInternal(w.upperBound(), currentIndex, indices);
-            case Intersection is -> throw new UnsupportedOperationException("Intersection not supported");
-            case ClassType ct -> throw new IllegalArgumentException("ClassType has no type args");
+            case Wildcard ignored -> throw new UnsupportedOperationException("Wildcard not supported");
+            case Intersection ignored -> throw new UnsupportedOperationException("Intersection not supported");
+            case ClassType ignored -> throw new IllegalArgumentException("ClassType has no type args");
         };
     }
 

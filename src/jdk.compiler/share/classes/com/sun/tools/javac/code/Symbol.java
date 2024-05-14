@@ -440,6 +440,14 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
         return (flags_field & IMPLICIT_CLASS) != 0;
     }
 
+    public boolean hasNewGenerics() {
+        // required because Gen uses nullCheck unary op, meaning we need to check if Objects has NewGenerics flag.
+        // Otherwise, if the class has not been used anywhere, it will not have been completed and the flag will not be
+        // set.
+        complete();
+        return (flags_field & NEW_GENERICS) != 0;
+    }
+
    /** Is this symbol declared (directly or indirectly) local
      *  to a method or variable initializer?
      *  Also includes fields of inner classes which are in

@@ -301,6 +301,7 @@ public class DocLint extends com.sun.tools.doclint.DocLint {
             TaskListener tl = new TaskListener() {
                 @Override @DefinedBy(Api.COMPILER_TREE)
                 public void started(TaskEvent e) {
+                    if (true) return;
                     switch (e.getKind()) {
                         case ANALYZE:
                             CompilationUnitTree tree;

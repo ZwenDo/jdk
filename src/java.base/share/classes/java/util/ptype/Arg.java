@@ -4,6 +4,7 @@ import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
+import java.util.Arrays;
 import java.util.Objects;
 
 /**
@@ -37,14 +38,18 @@ public sealed interface Arg permits ArrayType, ClassType, InnerClassType, Inters
         return switch (type) {
             case Class<?> clazz -> ClassType.of(clazz);
             case java.lang.reflect.ParameterizedType parameterizedType -> {
-                var args = IterableUtils.map(parameterizedType.getActualTypeArguments(), Arg::fromType);
+                var args = Arrays.stream(parameterizedType.getActualTypeArguments())
+                    .map(Arg::fromType)
+                    .toList();
                 yield ParameterizedType.of((Class<?>) parameterizedType.getRawType(), args);
             }
             case WildcardType wildcardType -> {
                 if (wildcardType.getLowerBounds().length == 0) { // no lower bound
-                    yield Wildcard.ofUpper(IterableUtils.map(wildcardType.getUpperBounds(), Arg::fromType));
+                    var bound = Arrays.stream(wildcardType.getUpperBounds()).map(Arg::fromType).toList();
+                    yield Wildcard.ofUpper(bound);
                 } else {
-                    yield Wildcard.ofLower(IterableUtils.map(wildcardType.getLowerBounds(), Arg::fromType));
+                    var bound = Arrays.stream(wildcardType.getLowerBounds()).map(Arg::fromType).toList();
+                    yield Wildcard.ofLower(bound);
                 }
             }
             case GenericArrayType genericArrayType -> ArrayType.of(
@@ -55,7 +60,9 @@ public sealed interface Arg permits ArrayType, ClassType, InnerClassType, Inters
                     yield Arg.fromType(typeVariable.getBounds()[0]);
                 }
                 // intersection
-                var bounds = IterableUtils.map(typeVariable.getBounds(), Arg::fromType);
+                var bounds = Arrays.stream(typeVariable.getBounds())
+                    .map(Arg::fromType)
+                    .toList();
                 yield Intersection.of(bounds);
             }
             default -> throw new IllegalArgumentException("Unknown type: " + type + " (" + type.getClass() + ")");

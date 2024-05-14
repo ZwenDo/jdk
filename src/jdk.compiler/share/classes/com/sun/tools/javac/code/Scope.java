@@ -271,7 +271,7 @@ public abstract class Scope {
 
     }
 
-    private static class ScopeImpl extends WriteableScope {
+    public static class ScopeImpl extends WriteableScope {
         /** true if this scope's hash table is shared with a nested scope.
          */
         private boolean shared;
@@ -299,6 +299,8 @@ public abstract class Scope {
         int nelems = 0;
 
         int removeCount = 0;
+
+        public final Exception trace = new Exception();
 
         /** Use as a "not-found" result for lookup.
          * Also used to mark deleted entries in the table.
@@ -1025,7 +1027,7 @@ public abstract class Scope {
      */
     public static class CompoundScope extends Scope implements ScopeListener {
 
-        ListBuffer<Scope> subScopes = new ListBuffer<>();
+        public ListBuffer<Scope> subScopes = new ListBuffer<>();
         private int mark = 0;
 
         public CompoundScope(Symbol owner) {

@@ -12,21 +12,21 @@ public final class TypeOperations {
      *
      * @param obj      the object to cast
      * @param expected the expected type
-     * @param <T>      the type to cast to
      * @return the cast object
      */
     @SuppressWarnings("unchecked")
-    public static <T> T checkCast(Object obj, Arg expected) {
+    public static Object checkCast(Object obj, Arg expected) {
         Objects.requireNonNull(expected);
         if (obj == null) {
             return null;
         }
 
-        if (!isInstance(obj, expected)) {
-            throw new ClassCastException(classCastExceptionMessage(obj, expected));
-        }
+        // TODO uncomment
+//        if (!isInstance(obj, expected)) {
+//            System.err.println((message(obj, expected)));
+//        }
 
-        return (T) obj;
+        return obj;
     }
 
     private static boolean isInstance(Object obj, Arg expected) {
@@ -45,35 +45,29 @@ public final class TypeOperations {
             case ClassType classType -> classType.type().isAssignableFrom(obj.getClass());
 
             // var cast = (List) obj;
-            case RawType rawType -> validate(obj, expected, rawType.rawArg().rawType());
+            case RawType rawType -> validate(obj, expected, rawType.type());
 
             // var cast = (List<String>) obj;
             case ParameterizedType parameterizedType -> validate(obj, expected, parameterizedType.rawType());
 
             // var cast = (Runnable & Serializable) obj;
-            case Intersection intersection -> IterableUtils.allMatch(
-                intersection.bounds(),
-                bound -> isInstance(obj, bound)
-            );
+            case Intersection intersection -> intersection.bounds().stream().allMatch(bound -> isInstance(obj, bound));
 
             // var cast = (List<String>[]) obj;
             case ArrayType arrayType -> {
                 if (!obj.getClass().isArray()) {
                     yield false;
                 }
-                var arg = Internal.arrayType(obj);
-                yield arrayType.isAssignable(arg);
+                yield Internal.arrayType(obj)
+                    .map(arrayType::isAssignable)
+                    .orElse(true);
             }
 
             // Note that this kind of cast should not be possible
             // var cast = (? extends String) obj;
             // var cast = (? super String) obj;
             // var cast = (?) obj;    equivalent to (? extends Object)
-            case Wildcard wildcard -> IterableUtils.allMatch(wildcard.upperBound(), bound -> isInstance(obj, bound))
-                && (
-                wildcard.lowerBound().isEmpty()
-                    || IterableUtils.anyMatch(wildcard.lowerBound(), bound -> isInstance(obj, bound))
-            );
+            case Wildcard ignored -> throw new AssertionError("Wilcard cast should not be possible");
         };
     }
 
@@ -84,7 +78,7 @@ public final class TypeOperations {
             .orElseGet(() -> supertype.isAssignableFrom(objClass));
     }
 
-    private static String classCastExceptionMessage(Object obj, Arg expected) {
+    private static String message(Object obj, Arg expected) {
         var objClass = obj.getClass();
 
         var builder = new StringBuilder("Cannot cast ")

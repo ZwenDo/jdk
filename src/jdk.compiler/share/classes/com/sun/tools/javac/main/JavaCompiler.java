@@ -1575,6 +1575,18 @@ public class JavaCompiler {
         }
         ScanNested scanner = new ScanNested();
         scanner.scan(env.tree);
+
+        if (shouldStop(CompileState.TRANSPARAMETERIZEDTYPES))
+            return;
+
+        if (!env.tree.hasTag(JCTree.Tag.PACKAGEDEF) && !env.tree.hasTag(JCTree.Tag.MODULEDEF)) {
+            env.tree = TransParameterizedTypes.instance(context).translateTopLevelClass(env, env.tree, make.forToplevel(env.toplevel));
+
+            compileStates.put(env, CompileState.TRANSPARAMETERIZEDTYPES);
+        }
+
+
+
         for (Env<AttrContext> dep: scanner.dependencies) {
         if (!compileStates.isDone(dep, CompileState.FLOW))
             desugaredEnvs.put(dep, desugar(flow(attribute(dep))));
@@ -1610,13 +1622,6 @@ public class JavaCompiler {
                 }
                 return;
             }
-
-            if (shouldStop(CompileState.TRANSPARAMETERIZEDTYPES))
-                return;
-
-            env.tree = TransParameterizedTypes.instance(context).translateTopLevelClass(env, env.tree, localMake);
-
-            compileStates.put(env, CompileState.TRANSPARAMETERIZEDTYPES);
 
             if (shouldStop(CompileState.TRANSTYPES))
                 return;

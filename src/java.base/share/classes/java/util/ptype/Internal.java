@@ -62,19 +62,14 @@ final class Internal {
         }
     }
 
-    public static ArrayType arrayType(Object array) {
+    public static Optional<ArrayType> arrayType(Object array) {
         Objects.requireNonNull(array);
         if (!array.getClass().isArray()) {
             throw new IllegalArgumentException("Object " + array + " is not an array");
         }
-        ArrayType value;
         synchronized (ARRAY_TYPE_STORAGE) {
-            value = ARRAY_TYPE_STORAGE.get(array);
+            return Optional.ofNullable(ARRAY_TYPE_STORAGE.get(array));
         }
-        if (value == null) {
-            throw new IllegalArgumentException("Array " + array + " not cached");
-        }
-        return value;
     }
 
     public static Optional<Object> outerThis(Object obj) {

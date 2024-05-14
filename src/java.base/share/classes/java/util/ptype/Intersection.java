@@ -39,15 +39,15 @@ public non-sealed interface Intersection extends Arg {
             throw new IllegalArgumentException("bounds.size() < 2");
         }
         // TODO check that first bound is a class and that all other bounds are interfaces + bounds are distinct
+        var boundsCopy = List.copyOf(bounds);
         return new Intersection() {
-            private final List<Arg> boundsCopy = List.copyOf(bounds);
 
             @Override
             public void appendTo(StringBuilder builder) {
                 Objects.requireNonNull(builder);
                 var index = 0;
                 for (var bound : boundsCopy) {
-                    builder.append(bound.toString());
+                    bound.appendTo(builder);
                     index++;
                     if (index < boundsCopy.size()) {
                         builder.append(" & ");
@@ -58,7 +58,7 @@ public non-sealed interface Intersection extends Arg {
             @Override
             public boolean isAssignable(Arg actual) {
                 Objects.requireNonNull(actual);
-                return IterableUtils.allMatch(boundsCopy, (bound) -> bound.isAssignable(actual));
+                return boundsCopy.stream().allMatch((bound) -> bound.isAssignable(actual));
             }
 
             @Override

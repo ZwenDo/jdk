@@ -88,6 +88,60 @@ public non-sealed interface Wildcard extends Arg {
         return ofLower(Arrays.asList(lowerBound));
     }
 
+    /**
+     * Represents a recursive wildcard type. It is used to build a wildcard type using itself in its bounds.
+     */
+    final class RecursiveWildcard implements Wildcard {
+        private Wildcard inner;
+
+        /**
+         * Creates a recursive wildcard.
+         */
+        public RecursiveWildcard() {
+        }
+
+        @Override
+        public boolean isAssignable(Arg actual) {
+            return checkInner().isAssignable(actual);
+        }
+
+        @Override
+        public void appendTo(StringBuilder builder) {
+            checkInner().appendTo(builder);
+        }
+
+        @Override
+        public List<Arg> upperBound() {
+            return checkInner().upperBound();
+        }
+
+        @Override
+        public List<Arg> lowerBound() {
+            return checkInner().lowerBound();
+        }
+
+        /**
+         * Sets the inner wildcard.
+         *
+         * @param inner the inner wildcard
+         */
+        public void setInner(Wildcard inner) {
+            Objects.requireNonNull(inner);
+            if (this.inner != null) {
+                throw new IllegalStateException("inner already set");
+            }
+            this.inner = inner;
+        }
+
+        private Wildcard checkInner() {
+            if (inner == null) {
+                throw new IllegalArgumentException("Inner not set");
+            }
+            return inner;
+        }
+
+    }
+
     private static Wildcard of(List<Arg> upperBound, List<Arg> lowerBound) {
         return new Wildcard() {
 
@@ -96,33 +150,17 @@ public non-sealed interface Wildcard extends Arg {
                 Objects.requireNonNull(builder);
                 builder.append("?");
                 if (lowerBound.isEmpty()) {
-                    builder.append(" extends "); // TODO factorize branches + Intersection#appendTo
-                    var index = 0;
-                    for (var bound : upperBound) {
-                        builder.append(bound.toString());
-                        index++;
-                        if (index < upperBound.size()) {
-                            builder.append(" & ");
-                        }
-                    }
+                    appendBounds(builder, " extends ", upperBound);
                 } else {
-                    builder.append(" super ");
-                    var index = 0;
-                    for (var bound : lowerBound) {
-                        builder.append(bound.toString());
-                        index++;
-                        if (index < lowerBound.size()) {
-                            builder.append(" & ");
-                        }
-                    }
+                    appendBounds(builder, " super ", lowerBound);
                 }
             }
 
             @Override
             public boolean isAssignable(Arg actual) {
                 Objects.requireNonNull(actual);
-                return IterableUtils.allMatch(upperBound, (bound) -> bound.isAssignable(actual)) &&
-                    IterableUtils.allMatch(lowerBound, (bound) -> bound.isAssignable(actual));
+                return upperBound.stream().allMatch((bound) -> bound.isAssignable(actual)) &&
+                    lowerBound.stream().allMatch((bound) -> bound.isAssignable(actual));
             }
 
             @Override
@@ -138,6 +176,18 @@ public non-sealed interface Wildcard extends Arg {
             @Override
             public String toString() {
                 return Arg.toString(this);
+            }
+
+            private static void appendBounds(StringBuilder builder, String prefix, List<Arg> bounds) {
+                builder.append(prefix);
+                var index = 0;
+                for (var bound : bounds) {
+                    bound.appendTo(builder);
+                    index++;
+                    if (index < bounds.size()) {
+                        builder.append(" & ");
+                    }
+                }
             }
 
         };

@@ -1,7 +1,6 @@
 package java.util.ptype;
 
 import java.lang.invoke.MethodHandle;
-import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -13,7 +12,7 @@ public interface ArgHandle {
     /**
      * Gets the {@link Arg} of the given type.
      *
-     * @param holder the holder of the field
+     * @param holder    the holder of the field
      * @param supertype the supertype represented by the field
      * @return an {@link Optional} containing the {@link Arg} if the field exists
      */
@@ -50,13 +49,14 @@ public interface ArgHandle {
             public Optional<Arg> arg(Object holder, Class<?> supertype) {
                 Objects.requireNonNull(holder);
                 Objects.requireNonNull(supertype);
-                return cache.get(supertype).map(getter -> {
-                    try {
-                        return (Arg) getter.invoke(holder);
-                    } catch (Throwable throwable) {
-                        throw new AssertionError(throwable);
-                    }
-                });
+                return cache.get(supertype)
+                    .map(getter -> {
+                        try {
+                            return (Arg) getter.invoke(holder);
+                        } catch (Throwable throwable) {
+                            throw new AssertionError(throwable);
+                        }
+                    });
             }
 
         };

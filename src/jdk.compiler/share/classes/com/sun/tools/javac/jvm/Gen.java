@@ -25,6 +25,7 @@
 
 package com.sun.tools.javac.jvm;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -1921,15 +1922,7 @@ public class Gen extends JCTree.Visitor {
         // the parameters of the method's external type (that is, any implicit
         // outer instance of a super(...) call appears as first parameter).
         MethodSymbol msym = (MethodSymbol)TreeInfo.symbol(tree.meth);
-        var pts = msym.externalType(types).getParameterTypes(); // TODO fix for inner classes where typeArgs get prepended before the outer this
-        if (
-            tree.isParameterized && (pts.isEmpty() || (!types.isSameType(syms.methodTypeArgs, pts.getFirst()) && !types.isSameType(syms.argBaseType, pts.getFirst())))
-        ) {
-            var type = tree.args.getFirst().type;
-            pts = pts.prepend(type);
-            m.typeArg = type;
-        }
-        genArgs(tree.args, pts);
+        genArgs(tree.args, msym.externalType(types).getParameterTypes());
         if (!msym.isDynamic()) {
             code.statBegin(tree.pos);
         }
@@ -2021,18 +2014,8 @@ public class Gen extends JCTree.Visitor {
         // Generate code for all arguments, where the expected types are
         // the parameters of the constructor's external type (that is,
         // any implicit outer instance appears as first parameter).
-        var parameterTypes = tree.constructor.externalType(types).getParameterTypes();
-        var item = items.makeMemberItem(tree.constructor, true);
-        if (
-            tree.isParameterized && (parameterTypes.isEmpty() || !types.isSameType(syms.argBaseType, parameterTypes.getFirst()))
-        ) {
-            var type = tree.args.getFirst().type;
-            parameterTypes = parameterTypes.prepend(type);
-            item.typeArg = type;
-        }
-        genArgs(tree.args, parameterTypes);
-
-        item.invoke();
+        genArgs(tree.args, tree.constructor.externalType(types).getParameterTypes());
+        items.makeMemberItem(tree.constructor, true).invoke();
         result = items.makeStackItem(tree.type);
     }
 
@@ -2189,6 +2172,9 @@ public class Gen extends JCTree.Visitor {
                 }
                 break;
             case NULLCHK:
+                if (syms.objectsType.tsym.hasNewGenerics()) {
+                    code.emitop0(aconst_null); // because requireNonNull expects a methodTypeArg as first argument
+                }
                 result = od.load();
                 code.emitop0(dup);
                 genNullCheck(tree);
@@ -2202,8 +2188,30 @@ public class Gen extends JCTree.Visitor {
     /** Generate a null check from the object value at stack top. */
     private void genNullCheck(JCTree tree) {
         code.statBegin(tree.pos);
-        callMethod(tree.pos(), syms.objectsType, names.requireNonNull,
-                   List.of(syms.objectType), true);
+        Symbol msym;
+        if (syms.objectType.tsym.hasNewGenerics()) {
+            msym = new MethodSymbol(
+                PUBLIC | STATIC,
+                names.requireNonNull,
+                new MethodType(
+                    List.of(syms.methodTypeArgs, syms.objectType),
+                    syms.objectType,
+                    List.nil(),
+                    syms.methodClass
+                ),
+                syms.objectsType.tsym
+            );
+        } else {
+            msym = rs.resolveInternalMethod(
+                tree.pos(),
+                attrEnv,
+                syms.objectsType,
+                names.requireNonNull,
+                List.of(syms.objectType),
+                null
+            );
+        }
+        items.makeStaticItem(msym).invoke();
         code.emitop0(pop);
     }
 
@@ -2389,6 +2397,9 @@ public class Gen extends JCTree.Visitor {
                     base = base.load();
                 base.drop();
             } else {
+                if (syms.objectsType.tsym.hasNewGenerics()) {
+                    code.emitop0(aconst_null); // because requireNonNull expects a methodTypeArg as first argument
+                }
                 base.load();
                 genNullCheck(tree.selected);
             }
@@ -2482,14 +2493,8 @@ public class Gen extends JCTree.Visitor {
             localEnv.toplevel = env.toplevel;
             localEnv.enclClass = cdef;
 
-            try {
-
             for (List<JCTree> l = cdef.defs; l.nonEmpty(); l = l.tail) {
                 genDef(l.head, localEnv);
-            }
-            } catch (Throwable t) {
-                log.printRawLines("class: " + cdef);
-                throw t;
             }
             if (poolWriter.size() > PoolWriter.MAX_ENTRIES) {
                 log.error(cdef.pos(), Errors.LimitPool);

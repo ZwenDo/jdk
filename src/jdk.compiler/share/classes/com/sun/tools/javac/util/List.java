@@ -33,7 +33,9 @@ import java.util.Iterator;
 import java.util.AbstractCollection;
 import java.util.ListIterator;
 import java.util.NoSuchElementException;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collector;
 
 /** A class for generic linked lists. Links are supposed to be
@@ -430,6 +432,35 @@ public class List<A> extends AbstractCollection<A> implements java.util.List<A> 
             changed |= (z != a);
         }
         return changed ? buf.toList() : (List<Z>)this;
+    }
+
+    public List<A> filter(Predicate<A> filter) {
+        if (isEmpty()) return this;
+        var changed = false;
+        var buf = new ListBuffer<A>();
+        for (var e : this) {
+            if (filter.test(e)) {
+                buf.append(e);
+            } else {
+                changed = true;
+            }
+        }
+        return changed ? buf.toList() : this;
+    }
+
+    public List<A> filterIndexed(BiPredicate<A, Integer> filter) {
+        if (isEmpty()) return this;
+        var changed = false;
+        var buf = new ListBuffer<A>();
+        var index = 0;
+        for (var e : this) {
+            if (filter.test(e, index++)) {
+                buf.append(e);
+            } else {
+                changed = true;
+            }
+        }
+        return changed ? buf.toList() : this;
     }
 
     @SuppressWarnings("unchecked")

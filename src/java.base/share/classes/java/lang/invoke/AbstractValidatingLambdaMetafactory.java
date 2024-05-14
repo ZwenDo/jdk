@@ -131,7 +131,7 @@ import static sun.invoke.util.Wrapper.isWrapperType;
         this.caller = caller;
         this.targetClass = caller.lookupClass();
         this.factoryType = factoryType;
-        this.isFromParameterizedInterface = factoryType.parameterCount() > 0 && Arg.class.equals(factoryType.parameterType(0));
+        this.isFromParameterizedInterface = false;//factoryType.parameterCount() > 0 && Arg.class == factoryType.parameterType(0);
 
 
         this.interfaceClass = factoryType.returnType();
@@ -233,7 +233,13 @@ import static sun.invoke.util.Wrapper.isWrapperType;
         final int capturedArity = isFromParameterizedInterface ? factoryType.parameterCount() - 1 : factoryType.parameterCount();
         final int samArity = interfaceMethodType.parameterCount();
         final int dynamicArity = dynamicMethodType.parameterCount();
+        if (isFromParameterizedInterface) {
+//            System.err.println("==== dump ====");
+//            System.err.println(implMethodType);
+//            System.err.println(factoryType);
+        }
         if (implArity != capturedArity + samArity) {
+            System.out.println(implMethodType + " // " + interfaceMethodType + " // " + interfaceClass);
             throw new LambdaConversionException(
                     String.format("Incorrect number of parameters for %s method %s; %d captured parameters, %d functional interface method parameters, %d implementation parameters",
                                   implIsInstanceMethod ? "instance" : "static", implInfo,

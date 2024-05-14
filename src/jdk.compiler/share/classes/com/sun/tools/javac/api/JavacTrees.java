@@ -709,10 +709,19 @@ public class JavacTrees extends DocTrees {
         if (paramTypes == null)
             return true;
 
-        if (method.params().size() != paramTypes.size())
+        // TODO unsure about the flag_field check
+        var actualSize = method.params().size();
+        var requiresRemove = method.owner.hasNewGenerics() && method.type.getTypeArguments().nonEmpty() && actualSize != paramTypes.size();
+        if (requiresRemove) {
+            actualSize--;
+        }
+        if (actualSize != paramTypes.size())
             return false;
 
         List<Type> methodParamTypes = method.asType().getParameterTypes();
+        if (requiresRemove) {
+            methodParamTypes = methodParamTypes.tail;
+        }
         if (!strict && !Type.isErroneous(paramTypes) && types.isSubtypes(paramTypes, methodParamTypes)) {
             return true;
         }

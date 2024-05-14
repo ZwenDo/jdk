@@ -60,7 +60,7 @@ public class CompileStates extends HashMap<Env<AttrContext>, CompileStates.Compi
         FLOW(5),
         TRANSPARAMETERIZEDTYPES(6),
         TRANSTYPES(7),
-        TRANSLITERALS(8),
+        TRANSPATTERNS(8),
         UNLAMBDA(9),
         LOWER(10),
         GENERATE(11);

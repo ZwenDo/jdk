@@ -54,6 +54,7 @@ import com.sun.tools.javac.util.JCDiagnostic.DiagnosticFlag;
 import com.sun.tools.javac.util.JCDiagnostic.DiagnosticPosition;
 import com.sun.tools.javac.util.JCDiagnostic.DiagnosticType;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
@@ -67,6 +68,7 @@ import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -1706,6 +1708,12 @@ public class Resolve {
                 if (m1Abstract && !m2Abstract) return m2;
                 if (m2Abstract && !m1Abstract) return m1;
                 // both abstract or both concrete
+
+                if (m1.isStatic() && m2.isStatic()) {
+                    if (types.isSuperType(m1Owner.type, m2Owner.type)) return m1;
+                    if (types.isSuperType(m2Owner.type, m1Owner.type)) return m2;
+                }
+
                 return ambiguityError(m1, m2);
             }
             if (m1SignatureMoreSpecific) return m1;

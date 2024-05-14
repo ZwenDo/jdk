@@ -12,7 +12,7 @@ public non-sealed interface RawType extends Arg {
      *
      * @return the raw type
      */
-    ParameterizedType rawArg();
+    Class<?> type();
 
     /**
      * Creates a {@link RawType} from the given raw type.
@@ -25,52 +25,39 @@ public non-sealed interface RawType extends Arg {
      */
     static RawType of(Class<?> type) {
         Objects.requireNonNull(type);
-        var parameters = type.getTypeParameters();
-        if (parameters.length == 0) {
-            throw new IllegalArgumentException("Class " + type + " is not a parameterized type");
-        }
-        var args = IterableUtils.map(parameters, Arg::fromType);
-        return of(ParameterizedType.of(type, args));
-    }
-
-    /**
-     * Creates a {@link RawType} from the given raw type.
-     * <p>
-     * This method is only used for testing purposes. RawType should be created statically by the compiler, so this
-     * dynamic method should never be called.
-     *
-     * @param rawArg the raw type
-     * @return the {@link RawType}
-     */
-    static RawType of(ParameterizedType rawArg) {
-        Objects.requireNonNull(rawArg);
         return new RawType() {
-
             @Override
-            public void appendTo(StringBuilder builder) {
-                Objects.requireNonNull(builder);
-                builder.append(rawArg.rawType().getSimpleName());
-                builder.append("(raw type of: ");
-                rawArg.appendTo(builder);
-                builder.append(")");
+            public Class<?> type() {
+                return type;
             }
 
             @Override
             public boolean isAssignable(Arg actual) {
                 Objects.requireNonNull(actual);
-                return rawArg.isAssignable(actual); // TODO check if it can be simplified for RawType and ParameterizedType if the class is the same
+                return switch (actual) {
+                    case ParameterizedType parameterizedType -> type().equals(parameterizedType.rawType());
+                    case RawType rawType -> type.equals(rawType.type());
+                    case Intersection intersection -> intersection.bounds()
+                        .stream()
+                        .anyMatch(this::isAssignable);
+                    case Wildcard wildcard -> wildcard.upperBound().stream().anyMatch(this::isAssignable);
+                    case InnerClassType ignored -> false;
+                    case ArrayType ignored -> false;
+                    case ClassType ignored -> false;
+                };
             }
 
             @Override
-            public ParameterizedType rawArg() {
-                return rawArg;
+            public void appendTo(StringBuilder builder) {
+                Objects.requireNonNull(builder);
+                builder.append(type.getSimpleName());
+                builder.append("<raw type>");
             }
 
             @Override
             public String toString() {
                 return Arg.toString(this);
             }
-
         };
     }
 

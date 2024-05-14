@@ -38,6 +38,7 @@ import com.sun.tools.javac.code.*;
 import com.sun.tools.javac.code.Directive.RequiresDirective;
 import com.sun.tools.javac.code.Scope.*;
 import com.sun.tools.javac.code.Symbol.*;
+import com.sun.tools.javac.comp.TransParameterizedTypes;
 import com.sun.tools.javac.util.*;
 import com.sun.tools.javac.util.DefinedBy.Api;
 import com.sun.tools.javac.util.JCDiagnostic.DiagnosticPosition;
@@ -799,6 +800,8 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
      * Common supertype for all functional expression trees (lambda and method references)
      */
     public abstract static class JCFunctionalExpression extends JCPolyExpression {
+
+        public List<TransParameterizedTypes.ScopeTypeParameter> scopeTypeParameters = List.nil();
 
         public JCFunctionalExpression() {
             //a functional expression is always a 'true' poly
@@ -1896,7 +1899,6 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public Symbol constructor;
         public Type varargsElement;
         public Type constructorType;
-        public boolean isParameterized; // to easily know if the constructor is parameterized even after the erasure
         protected JCNewClass(JCExpression encl,
                            List<JCExpression> typeargs,
                            JCExpression clazz,

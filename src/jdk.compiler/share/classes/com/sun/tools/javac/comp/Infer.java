@@ -218,7 +218,7 @@ public class Infer {
             var buffer = new ListBuffer<Type>();
             inferenceContext.undetvars.forEach(u -> {
                 var undetVar = (UndetVar) u;
-                buffer.prepend(undetVar.getInst());
+                buffer.append(undetVar.getInst());
             });
             mt.inferredTypes = buffer.toList();
 

@@ -819,6 +819,9 @@ public class Symtab {
         if (c == null) {
             c = defineClass(Convert.shortName(flatname), ps);
             doEnterClass(ps.modle, c);
+//            if (c.name.contentEquals("Objects")) {
+//
+//            }
             return c;
         } else
             return c;

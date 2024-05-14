@@ -744,6 +744,9 @@ public class Log extends AbstractLog {
 
         PrintWriter writer = getWriterForDiagnosticType(diag.getType());
 
+        if (diag.getType() == DiagnosticType.ERROR || diag.getType() == DiagnosticType.WARNING) {
+            new Exception().printStackTrace(writer);
+        }
         printRawLines(writer, diagFormatter.format(diag, messages.getCurrentLocale()));
 
         if (promptOnError) {

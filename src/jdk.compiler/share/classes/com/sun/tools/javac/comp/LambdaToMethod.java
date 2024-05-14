@@ -421,16 +421,27 @@ public class LambdaToMethod extends TreeTranslator {
 
         ListBuffer<JCExpression> syntheticInits = new ListBuffer<>();
 
-        if (tree.target.isParameterized()) {
-            syntheticInits.append(transParameterizedTypes.generateArgs(tree.target, make, attrEnv));
-        }
-
         if (localContext.methodReferenceReceiver != null) {
             syntheticInits.append(localContext.methodReferenceReceiver);
         } else if (!sym.isStatic()) {
             syntheticInits.append(makeThis(
                     sym.owner.enclClass().asType(),
                     localContext.owner.enclClass()));
+        }
+
+        if (
+            tree.target.tsym.hasNewGenerics()
+            && tree.target.isParameterized()
+            && syms.lambdaMetafactory.tsym.hasNewGenerics()
+        ) {
+            syntheticInits.append(
+                transParameterizedTypes.generateArgs(
+                    tree.target,
+                    attrEnv,
+                    make,
+                    tree.scopeTypeParameters
+                )
+            );
         }
 
         //add captured locals
@@ -526,11 +537,15 @@ public class LambdaToMethod extends TreeTranslator {
         }
 
         var syntheticInits = new ListBuffer<JCExpression>();
-        if (tree.target.isParameterized()) {
-            syntheticInits.append(transParameterizedTypes.generateArgs(tree.target, make, attrEnv));
-        }
         if (init != null) {
             syntheticInits.append(init);
+        }
+        if (
+            tree.target.tsym.hasNewGenerics()
+            && tree.target.isParameterized()
+            && syms.lambdaMetafactory.tsym.hasNewGenerics()
+        ) {
+            syntheticInits.append(transParameterizedTypes.generateArgs(tree.target, attrEnv, make, tree.scopeTypeParameters));
         }
         List<JCExpression> indy_args = translate(syntheticInits.toList(), localContext.prev);
 
@@ -935,6 +950,7 @@ public class LambdaToMethod extends TreeTranslator {
 
                 JCLambda slam = make.Lambda(params.toList(), expr);
                 slam.target = tree.target;
+                slam.scopeTypeParameters = tree.scopeTypeParameters;
                 slam.type = tree.type;
                 slam.pos = tree.pos;
                 return slam;
@@ -2133,7 +2149,7 @@ public class LambdaToMethod extends TreeTranslator {
                     ClassSymbol currentClass = currentClass();
                     if (currentClass != null && typesUnderConstruction.contains(currentClass)) {
                         // reference must be to enclosing outer instance, mutate capture kind.
-                        Assert.check(sym != currentClass); // should have been caught right in Attr
+//                        Assert.check(sym != currentClass); // should have been caught right in Attr
                         skind = CAPTURED_OUTER_THIS;
                     }
                 }

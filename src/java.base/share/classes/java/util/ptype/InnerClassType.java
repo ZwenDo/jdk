@@ -47,8 +47,12 @@ public non-sealed interface InnerClassType extends Arg {
                 return switch (actual) {
                     case InnerClassType innerClassType -> outerType.isAssignable(innerClassType.outerType()) &&
                         innerType.isAssignable(innerClassType.innerType());
-                    default -> false;
-//                    case ArrayType _, ClassType _, Intersection _, ParameterizedType _, RawType _, Wildcard _ -> false;
+                    case ClassType ignored -> false;
+                    case Intersection ignored -> false;
+                    case ParameterizedType ignored -> false;
+                    case RawType ignored -> false;
+                    case Wildcard ignored -> false;
+                    case ArrayType ignored -> false;
                 };
             }
 

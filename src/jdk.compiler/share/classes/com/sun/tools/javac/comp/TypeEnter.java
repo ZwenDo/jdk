@@ -1422,7 +1422,13 @@ public class TypeEnter implements Completer {
                 params = params.prepend(new VarSymbol(PARAMETER, make.paramName(0), enclosingType(), csym));
             }
             if (constr.params != null) {
+                var positions = types.typeArgPositions(constr, true);
+                var index = -1;
                 for (VarSymbol p : constr.params) {
+                    index++;
+                    if (positions.anyAtPos(index)) { // if the parameter is a type argument, skip it
+                        continue;
+                    }
                     params.add(new VarSymbol(PARAMETER | p.flags(), p.name, argtypes.head, csym));
                     argtypes = argtypes.tail;
                 }

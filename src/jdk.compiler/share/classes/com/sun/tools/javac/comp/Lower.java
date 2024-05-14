@@ -27,6 +27,7 @@ package com.sun.tools.javac.comp;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import com.sun.tools.javac.code.*;
 import com.sun.tools.javac.code.Kinds.KindSelector;
@@ -97,6 +98,7 @@ public class Lower extends TreeTranslator {
     private final Name dollarAssertionsDisabled;
     private final Types types;
     private final TransTypes transTypes;
+    private final TransParameterizedTypes transParameterizedTypes;
     private final boolean debugLower;
     private final boolean disableProtectedAccessors; // experimental
     private final PkgInfo pkginfoOpt;
@@ -123,6 +125,7 @@ public class Lower extends TreeTranslator {
 
         types = Types.instance(context);
         transTypes = TransTypes.instance(context);
+        transParameterizedTypes = TransParameterizedTypes.instance(context);
         Options options = Options.instance(context);
         debugLower = options.isSet("debuglower");
         pkginfoOpt = PkgInfo.get(options);
@@ -863,7 +866,9 @@ public class Lower extends TreeTranslator {
                         types.isSameType(types.erasure(sym.type), types.erasure(sym2.type)) &&
                         sym != sym2 &&
                         (sym.flags() & Flags.SYNTHETIC) != (sym2.flags() & Flags.SYNTHETIC) &&
-                        (sym.flags() & BRIDGE) == 0 && (sym2.flags() & BRIDGE) == 0) {
+                        (sym.flags() & BRIDGE) == 0 && (sym2.flags() & BRIDGE) == 0 &&
+                        !sym.owner.hasNewGenerics() && !sym2.owner.hasNewGenerics()
+                    ) {
                         syntheticError(pos, (sym2.flags() & SYNTHETIC) == 0 ? sym2 : sym);
                         return;
                     }
@@ -2536,11 +2541,35 @@ public class Lower extends TreeTranslator {
         Assert.check((valueOfSym.flags() & STATIC) != 0);
         VarSymbol nameArgSym = valueOfSym.params.head;
         JCIdent nameVal = make.Ident(nameArgSym);
-        JCStatement enum_ValueOf =
-            make.Return(make.TypeCast(tree.sym.type,
-                                      makeCall(make.Ident(syms.enumSym),
-                                               names.valueOf,
-                                               List.of(e_class, nameVal))));
+        JCStatement enum_ValueOf;
+        if (syms.enumSym.hasNewGenerics()) {
+            var methodTypeArg = transParameterizedTypes.enumGenericMethodTypeArg(tree.sym, make, attrEnv);
+            var methodSymbol = new MethodSymbol(
+                PUBLIC | STATIC,
+                names.valueOf,
+                new MethodType(
+                    List.of(syms.methodTypeArgs, syms.classType, syms.stringType),
+                    syms.enumSym.type,
+                    List.nil(),
+                    syms.methodClass
+                ),
+                syms.enumSym
+            );
+            enum_ValueOf = make.Return(
+                make.TypeCast(
+                    tree.sym.type,
+                    make.App(
+                        make.Select(make.Ident(syms.enumSym), methodSymbol),
+                        List.of(methodTypeArg, e_class, nameVal)
+                    )
+                )
+            );
+        } else {
+            enum_ValueOf = make.Return(make.TypeCast(tree.sym.type,
+                makeCall(make.Ident(syms.enumSym),
+                    names.valueOf,
+                    List.of(e_class, nameVal))));
+        }
         JCMethodDecl valueOf = make.MethodDef(valueOfSym,
                                            make.Block(0, List.of(enum_ValueOf)));
         nameVal.sym = valueOf.params.head.sym;
@@ -3094,7 +3123,7 @@ public class Lower extends TreeTranslator {
         boolean isEnum = (tree.constructor.owner.flags() & ENUM) != 0;
         List<Type> argTypes = tree.constructor.type.getParameterTypes();
         if (isEnum) argTypes = argTypes.prepend(syms.intType).prepend(syms.stringType);
-        tree.args = boxArgs(tree.isParameterized, argTypes, tree.args, tree.varargsElement);
+        tree.args = boxArgs(argTypes, tree.args, tree.varargsElement);
         tree.varargsElement = null;
 
         // If created class is local, add free variables after
@@ -3284,9 +3313,9 @@ public class Lower extends TreeTranslator {
     public void visitApply(JCMethodInvocation tree) {
         Symbol meth = TreeInfo.symbol(tree.meth);
         List<Type> argtypes = meth.type.getParameterTypes();
-        if (meth.name == names.init && meth.owner == syms.enumSym)
+        if (meth.name == names.init && meth.owner == syms.enumSym && currentClass != syms.enumSym)
             argtypes = argtypes.tail.tail;
-        tree.args = boxArgs(tree.isParameterized, argtypes, tree.args, tree.varargsElement);
+        tree.args = boxArgs(argtypes, tree.args, tree.varargsElement);
         tree.varargsElement = null;
         Name methName = TreeInfo.name(tree.meth);
         if (meth.name==names.init) {
@@ -3307,7 +3336,7 @@ public class Lower extends TreeTranslator {
 
             // If we are calling a constructor of an enum class, pass
             // along the name and ordinal arguments
-            if ((c.flags_field&ENUM) != 0 || c.getQualifiedName() == names.java_lang_Enum) {
+            if (((c.flags_field&ENUM) != 0 || c.getQualifiedName() == names.java_lang_Enum) && currentClass != syms.enumSym) {
                 List<JCVariableDecl> params = currentMethodDef.params;
                 if (currentMethodSym.owner.hasOuterInstance())
                     params = params.tail; // drop this$n
@@ -3361,11 +3390,10 @@ public class Lower extends TreeTranslator {
         result = tree;
     }
 
-    List<JCExpression> boxArgs(boolean isParameterized, List<Type> parameters, List<JCExpression> _args, Type varargsElement) {
+    List<JCExpression> boxArgs(List<Type> parameters, List<JCExpression> _args, Type varargsElement) {
+        var a = _args;
+        var p = parameters;
         List<JCExpression> args = _args;
-        if (isParameterized && (parameters.isEmpty() || (!types.isSameType(syms.argBaseType, parameters.getFirst()) && !types.isSameType(syms.methodTypeArgs, parameters.getFirst())))) {
-            parameters = parameters.prepend(args.getFirst().type);
-        }
         if (parameters.isEmpty()) return args;
         boolean anyChanges = false;
         ListBuffer<JCExpression> result = new ListBuffer<>();

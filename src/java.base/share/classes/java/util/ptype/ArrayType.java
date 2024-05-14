@@ -35,9 +35,12 @@ public non-sealed interface ArrayType extends Arg {
                 Objects.requireNonNull(actual);
                 return switch (actual) {
                     case ArrayType arrayType -> componentTypeArgs.isAssignable(arrayType.componentType());
-                    default -> false;
-//                    case ClassType _, InnerClassType _, Intersection _, ParameterizedType _, RawType _, Wildcard _ ->
-//                        false;
+                    case ClassType ignored -> false;
+                    case InnerClassType ignored -> false;
+                    case Intersection ignored -> false;
+                    case ParameterizedType ignored -> false;
+                    case RawType ignored -> false;
+                    case Wildcard ignored -> false;
                 };
             }
 

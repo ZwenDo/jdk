@@ -1,5 +1,6 @@
 package java.util.ptype;
 
+import java.util.Arrays;
 import java.util.Objects;
 
 /**
@@ -25,12 +26,13 @@ public interface MethodTypeArgs {
         if (args.length == 0) {
             throw new IllegalArgumentException("args.length == 0");
         }
+        var argsCopy = Arrays.copyOf(args, args.length);
         return new MethodTypeArgs() {
             
             @Override
             public Arg arg(int index) {
-                Objects.checkIndex(index, args.length);
-                return args[index];
+                Objects.checkIndex(index, argsCopy.length);
+                return argsCopy[index];
             }
 
             @Override
@@ -38,10 +40,10 @@ public interface MethodTypeArgs {
                 var builder = new StringBuilder();
                 builder.append("<");
                 var index = 0;
-                for (var arg : args) {
+                for (var arg : argsCopy) {
                     builder.append(arg.toString());
                     index++;
-                    if (index < args.length) {
+                    if (index < argsCopy.length) {
                         builder.append(", ");
                     }
                 }

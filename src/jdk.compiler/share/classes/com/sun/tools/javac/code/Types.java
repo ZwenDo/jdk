@@ -26,13 +26,16 @@
 package com.sun.tools.javac.code;
 
 import java.lang.ref.SoftReference;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -42,15 +45,14 @@ import javax.tools.JavaFileObject;
 
 import com.sun.tools.javac.code.Attribute.RetentionPolicy;
 import com.sun.tools.javac.code.Lint.LintCategory;
-import com.sun.tools.javac.code.Source.Feature;
 import com.sun.tools.javac.code.Type.UndetVar.InferenceBound;
 import com.sun.tools.javac.code.TypeMetadata.Annotations;
 import com.sun.tools.javac.comp.AttrContext;
 import com.sun.tools.javac.comp.Check;
 import com.sun.tools.javac.comp.Enter;
 import com.sun.tools.javac.comp.Env;
-import com.sun.tools.javac.comp.LambdaToMethod;
 import com.sun.tools.javac.jvm.ClassFile;
+import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.util.*;
 
 import static com.sun.tools.javac.code.BoundKind.*;
@@ -1337,6 +1339,198 @@ public class Types {
                ((ArrayType)argtypes.head).elemtype.tsym == syms.objectType.tsym;
    }
 
+    public ArgPosition typeArgPositions(Symbol symbol, boolean verify) {
+        Objects.requireNonNull(symbol);
+        var isConstructor = symbol.isConstructor();
+        var actualOwner = isConstructor && symbol.owner.isAnonymous()
+            ? ((ClassSymbol) symbol.owner).getSuperclass().tsym
+            : symbol.owner;
+        if (!symbol.owner.hasNewGenerics() || !actualOwner.hasNewGenerics() || !(symbol instanceof MethodSymbol)) {
+            return ArgPosition.NONE;
+        }
+
+        var hasArgs = isConstructor && actualOwner.type.getTypeArguments().nonEmpty();
+        var hasMethodTypeArgs = false;
+        if (isConstructor) {
+            // We need to check if the constructor has type arguments which are not those from the class but from the
+            // method itself.
+            for (var param : symbol.type.getTypeArguments()) {
+                if (param.tsym.owner == symbol) {
+                    hasMethodTypeArgs = true;
+                    break;
+                }
+            }
+        } else {
+            hasMethodTypeArgs = symbol.type.getTypeArguments().nonEmpty();
+        }
+
+        if (!hasArgs && !hasMethodTypeArgs) {
+            return ArgPosition.NONE;
+        }
+
+        ArgPosition expectedPositions;
+        if (isConstructor && (actualOwner.isEnum() || actualOwner == syms.enumSym)) {
+            expectedPositions = hasMethodTypeArgs ? ArgPosition.ENUM_PARAM_CONSTRUCTOR : ArgPosition.ENUM_CONSTRUCTOR;
+        } else {
+            if (isConstructor) {
+                if (hasMethodTypeArgs && hasArgs) {
+                    expectedPositions = ArgPosition.PARAM_CLASS_PARAM_CONSTRUCTOR;
+                } else {
+                    expectedPositions = hasMethodTypeArgs ? ArgPosition.PARAM_CONSTRUCTOR : ArgPosition.PARAM_CLASS_CONSTRUCTOR;
+                }
+            } else {
+                expectedPositions = ArgPosition.PARAM_METHOD;
+            }
+        }
+
+        return verify
+            ? expectedPositions.verified(symbol.type.asMethodType().argtypes, this, syms)
+            : expectedPositions;
+    }
+
+    public ArgPosition typeArgPositions(Symbol symbol) {
+        Objects.requireNonNull(symbol);
+        return typeArgPositions(symbol, false);
+    }
+
+    public static final class ArgPosition {
+        private static final ArgPosition NONE = new ArgPosition(-1, -1);
+        private static final ArgPosition ENUM_CONSTRUCTOR = new ArgPosition(2, -1);
+        private static final ArgPosition ENUM_PARAM_CONSTRUCTOR = new ArgPosition(3, 2);
+        private static final ArgPosition PARAM_METHOD = new ArgPosition(-1, 0);
+        private static final ArgPosition PARAM_CONSTRUCTOR = new ArgPosition(-1, 0);
+        private static final ArgPosition PARAM_CLASS_CONSTRUCTOR = new ArgPosition(0, -1);
+        private static final ArgPosition PARAM_CLASS_PARAM_CONSTRUCTOR = new ArgPosition(1, 0);
+
+        private final int argPosition;
+        private final int methodTypeArgPosition;
+
+        private ArgPosition(int argPosition, int methodTypeArgPosition) {
+            this.argPosition = argPosition;
+            this.methodTypeArgPosition = methodTypeArgPosition;
+        }
+
+        public boolean anyAtPos(int index) {
+            if (index < 0) {
+                throw new IllegalArgumentException("index must be greater than or equal to 0, but was " + index);
+            }
+            return argPosition == index || methodTypeArgPosition == index;
+        }
+
+        public Type atPos(int index, Symtab syms) {
+            if (index < 0) {
+                throw new IllegalArgumentException("index must be greater than or equal to 0, but was " + index);
+            }
+            Objects.requireNonNull(syms);
+            if (argPosition == index) {
+                return syms.argBaseType;
+            } else if (methodTypeArgPosition == index) {
+                return syms.methodTypeArgs;
+            } else {
+                return null;
+            }
+        }
+
+        public int argPosition() {
+            return argPosition;
+        }
+
+        public int methodTypeArgPosition() {
+            return methodTypeArgPosition;
+        }
+
+        public boolean hasArg() {
+            return argPosition >= 0;
+        }
+
+        public boolean hasMethodTypeArg() {
+            return methodTypeArgPosition >= 0;
+        }
+
+        public void forEach(Symtab syms, BiConsumer<Integer, Type> action) {
+            Objects.requireNonNull(action);
+            Objects.requireNonNull(syms);
+            if (hasMethodTypeArg()) {
+                action.accept(methodTypeArgPosition, syms.methodTypeArgs);
+            }
+            if (hasArg()) {
+                action.accept(argPosition, syms.argBaseType);
+            }
+        }
+
+        public boolean hasNoArg() {
+            return this == NONE;
+        }
+
+        /**
+         * This method exists because enums seems to be compiled differently when they are declared in java.base and when
+         * they are declared in other modules. When they are declared in java.base, the constructor has the name and ordinal
+         * parameters in its signature, early during compilation. When they are declared in other modules, the constructor
+         * does not have these parameters in its signature, until lower.
+         */
+        public ArgPosition fitEnumConstructorPositions(List<JCTree.JCExpression> args, Symtab syms) {
+            Objects.requireNonNull(args);
+            Objects.requireNonNull(syms);
+            return fitEnumConstructorPositionsImpl(args, a -> a.type, syms);
+        }
+
+        /**
+         * @see #fitEnumConstructorPositions(List, Symtab)
+         */
+        public ArgPosition fitEnumConstructorPositionsDecl(List<JCTree.JCVariableDecl> params, Symtab syms) {
+            Objects.requireNonNull(params);
+            Objects.requireNonNull(syms);
+            return fitEnumConstructorPositionsImpl(params, p -> p.vartype.type, syms);
+        }
+
+        private <T> ArgPosition fitEnumConstructorPositionsImpl(List<T> params, Function<T, Type> typeExtractor, Symtab syms) {
+            if (this != ArgPosition.ENUM_CONSTRUCTOR && this != ArgPosition.ENUM_PARAM_CONSTRUCTOR) {
+                return this;
+            }
+            // if true, it means that the enums does not have the name and ordinal sets yet
+            if (
+                params.size() < 2
+                || typeExtractor.apply(params.getFirst()) != syms.stringType
+                || typeExtractor.apply(params.get(1)) != syms.intType
+            ) {
+                return this == ArgPosition.ENUM_CONSTRUCTOR
+                    ? ArgPosition.PARAM_CLASS_CONSTRUCTOR
+                    : ArgPosition.PARAM_CLASS_PARAM_CONSTRUCTOR;
+            }
+            return this;
+        }
+
+        private ArgPosition verified(List<Type> argTypes, Types types, Symtab syms) {
+            Objects.requireNonNull(argTypes);
+            Objects.requireNonNull(types);
+            Objects.requireNonNull(syms);
+            var i = 0;
+            var argOk = argPosition < 0;
+            var methodTypeArgOk = methodTypeArgPosition < 0;
+            for (var arg : argTypes) {
+                if (i == argPosition) {
+                     if (!types.isSameType(arg, syms.argBaseType)) {
+                         return NONE;
+                     }
+                    argOk = true;
+                }
+                if (i == methodTypeArgPosition) {
+                    if (!types.isSameType(arg, syms.methodTypeArgs)) {
+                        return NONE;
+                    }
+                    methodTypeArgOk = true;
+                }
+                i++;
+            }
+            return argOk && methodTypeArgOk ? this : NONE;
+        }
+
+        @Override
+        public String toString() {
+            return "{ arg: " + argPosition + ", methodTypeArg: " + methodTypeArgPosition + " }";
+        }
+    }
+
     /**
      * Is t the same type as s?
      */
@@ -2291,9 +2485,36 @@ public class Types {
      */
     public Type memberType(Type t, Symbol sym) {
         return (sym.flags() & STATIC) != 0
-            ? sym.type
+            ? typeWithoutTypeArgs(sym)
             : memberType.visit(t, sym);
+    }
+
+    public Type typeWithoutTypeArgs(Symbol.MethodSymbol msym, ArgPosition positons) {
+        Objects.requireNonNull(msym);
+        Objects.requireNonNull(positons);
+        var methodType = msym.type.asMethodType();
+        if (positons.hasNoArg()) { // no type args expected
+            return msym.type;
         }
+        var qtype = new MethodType(
+            methodType.argtypes.filterIndexed((__, i) -> !positons.anyAtPos(i)),
+            methodType.restype,
+            methodType.thrown,
+            methodType.tsym
+        );
+        if (msym.type instanceof ForAll forAll) {
+            return new ForAll( forAll.tvars, qtype);
+        }
+        return qtype;
+    }
+
+    private Type typeWithoutTypeArgs(Symbol sym) {
+        if (sym.owner.hasNewGenerics() && sym instanceof MethodSymbol msym) {
+            return typeWithoutTypeArgs(msym, typeArgPositions(sym, true));
+        }
+        return sym.type;
+    }
+
     // where
         private SimpleVisitor<Type,Symbol> memberType = new SimpleVisitor<Type,Symbol>() {
 
@@ -2310,6 +2531,7 @@ public class Types {
             public Type visitClassType(ClassType t, Symbol sym) {
                 Symbol owner = sym.owner;
                 long flags = sym.flags();
+                var symType = typeWithoutTypeArgs(sym);
                 if (((flags & STATIC) == 0) && owner.type.isParameterized()) {
                     Type base = asOuterSuper(t, owner);
                     //if t is an intersection type T = CT & I1 & I2 ... & In
@@ -2322,14 +2544,14 @@ public class Types {
                         if (ownerParams.nonEmpty()) {
                             if (baseParams.isEmpty()) {
                                 // then base is a raw type
-                                return erasure(sym.type);
+                                return erasure(symType);
                             } else {
-                                return subst(sym.type, ownerParams, baseParams);
+                                return subst(symType, ownerParams, baseParams);
                             }
                         }
                     }
                 }
-                return sym.type;
+                return symType;
             }
 
             @Override
@@ -3130,19 +3352,11 @@ public class Types {
                     if (sym.kind == MTH &&
                         (sym.flags() & (ABSTRACT|DEFAULT|PRIVATE)) == ABSTRACT) {
                         MethodSymbol absmeth = (MethodSymbol)sym;
-                        MethodSymbol lookupAbstract = absmeth;
-                        if (absmeth.type instanceof ForAll forAll) {
-                            var params = forAll.getParameterTypes();
-                            if (!params.isEmpty() && isSameType(syms.methodTypeArgs, params.getFirst())) {
-                                lookupAbstract = absmeth.clone(absmeth.owner);
-                                lookupAbstract.params = lookupAbstract.params.tail;
-                            }
-                        }
-                        MethodSymbol implmeth = lookupAbstract.implementation(impl, this, true);
+                        MethodSymbol implmeth = absmeth.implementation(impl, this, true);
                         if (implmeth == null || implmeth == absmeth) {
                             //look for default implementations
                             MethodSymbol prov = interfaceCandidates(impl.type, absmeth).head;
-                            if (prov != null && prov.overrides(lookupAbstract, impl, this, true)) {
+                            if (prov != null && prov.overrides(absmeth, impl, this, true)) {
                                 implmeth = prov;
                             }
                         }
@@ -3151,6 +3365,37 @@ public class Types {
                             break;
                         }
                     }
+//                    if (sym.kind == MTH &&
+//                        (sym.flags() & (ABSTRACT|DEFAULT|PRIVATE)) == ABSTRACT) {
+//                        MethodSymbol absmeth = (MethodSymbol)sym;
+//                        MethodSymbol lookupAbstract = absmeth;
+//                        if (absmeth.type instanceof ForAll forAll) {
+//                            var params = forAll.getParameterTypes();
+//                            if (!params.isEmpty() && isSameType(syms.methodTypeArgs, params.getFirst())) {
+//                                lookupAbstract = absmeth.clone(absmeth.owner);
+//                                try {
+//
+//
+//                                lookupAbstract.params = lookupAbstract.params.tail;
+//                                } catch (NullPointerException e) {
+//                                    logs.printRawLines("Flop " + sym + " // " + impl + " // " + c);
+//                                    throw e;
+//                                }
+//                            }
+//                        }
+//                        MethodSymbol implmeth = absmeth.implementation(impl, this, true);
+//                        if (implmeth == null || implmeth == absmeth) {
+//                            //look for default implementations
+//                            MethodSymbol prov = interfaceCandidates(impl.type, absmeth).head;
+//                            if (prov != null && prov.overrides(absmeth, impl, this, true)) {
+//                                implmeth = prov;
+//                            }
+//                        }
+//                        if (implmeth == null || implmeth == absmeth) {
+//                            undef = absmeth;
+//                            break;
+//                        }
+//                    }
                 }
                 if (undef == null) {
                     Type st = supertype(c.type);

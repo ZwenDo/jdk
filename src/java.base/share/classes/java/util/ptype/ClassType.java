@@ -34,19 +34,17 @@ public non-sealed interface ClassType extends Arg {
             public boolean isAssignable(Arg actual) {
                 Objects.requireNonNull(actual);
                 return switch (actual) {
-                    case ClassType classType -> type.isAssignableFrom(classType.type());
-                    case ParameterizedType parameterizedType -> type.isAssignableFrom(parameterizedType.rawType());
-                    case RawType rawType -> type.isAssignableFrom(rawType.rawArg().rawType());
-                    case InnerClassType innerClassType -> isAssignable(innerClassType.innerType()); // recurse on inner type
-                    case Intersection intersection -> IterableUtils.anyMatch(
-                        intersection.bounds(),
-                        this::isAssignable
-                    );
-                    case Wildcard wildcard -> IterableUtils.anyMatch(
-                        wildcard.upperBound(),
-                        this::isAssignable
-                    );
-                    case ArrayType a -> false;
+                    case ClassType classType -> type.equals(classType.type());
+                    case Intersection intersection -> intersection.bounds()
+                        .stream()
+                        .anyMatch(this::isAssignable);
+                    case Wildcard wildcard -> wildcard.upperBound()
+                        .stream()
+                        .anyMatch(this::isAssignable);
+                    case RawType ignored -> false;
+                    case ArrayType ignored -> false;
+                    case InnerClassType ignored -> false;
+                    case ParameterizedType ignored -> false;
                 };
             }
 

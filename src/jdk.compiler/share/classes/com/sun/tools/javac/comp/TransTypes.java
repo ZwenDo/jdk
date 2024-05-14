@@ -46,6 +46,8 @@ import static com.sun.tools.javac.code.TypeTag.VOID;
 import static com.sun.tools.javac.comp.CompileStates.CompileState;
 import com.sun.tools.javac.tree.JCTree.JCBreak;
 
+import java.util.ArrayList;
+
 /** This pass translates Generic Java to conventional Java.
  *
  *  <p><b>This is NOT part of any supported API.
@@ -75,6 +77,8 @@ public class TransTypes extends TreeTranslator {
     private Attr attr;
     private final Resolve resolve;
     private final CompileStates compileStates;
+    private final TransParameterizedTypes transParameterizedTypes;
+    private Symbol enclClass;
 
     @SuppressWarnings("this-escape")
     protected TransTypes(Context context) {
@@ -88,6 +92,7 @@ public class TransTypes extends TreeTranslator {
         make = TreeMaker.instance(context);
         resolve = Resolve.instance(context);
         annotate = Annotate.instance(context);
+        transParameterizedTypes = TransParameterizedTypes.instance(context);
         attr = Attr.instance(context);
     }
 
@@ -235,8 +240,9 @@ public class TransTypes extends TreeTranslator {
         Type implTypeErasure = erasure(impl.type);
 
         // Create a bridge method symbol and a bridge definition without a body.
-        Type bridgeType = meth.erasure(types);
-        long flags = impl.flags() & AccessFlags | SYNTHETIC | BRIDGE |
+        Type bridgeType = meth.erasure(types).asMethodType();
+        bridgeType = transParameterizedTypes.copyTypeAndInsertTypeArgIfNeeded(meth, bridgeType);
+        long flags = impl.flags() & AccessFlags | SYNTHETIC | BRIDGE | NEW_GENERICS |
                 (origin.isInterface() ? DEFAULT : 0);
         MethodSymbol bridge = new MethodSymbol(flags,
                                                meth.name,
@@ -670,7 +676,7 @@ public class TransTypes extends TreeTranslator {
         List<Type> argtypes = useInstantiatedPtArgs ?
                 tree.meth.type.getParameterTypes() :
                 mt.getParameterTypes();
-        if (meth.name == names.init && meth.owner == syms.enumSym)
+        if (meth.name == names.init && meth.owner == syms.enumSym && enclClass != syms.enumSym)
             argtypes = argtypes.tail.tail;
         if (tree.varargsElement != null)
             tree.varargsElement = types.erasure(tree.varargsElement);
@@ -947,8 +953,10 @@ public class TransTypes extends TreeTranslator {
         }
 
         Env<AttrContext> oldEnv = env;
+        var oldEnclClass = enclClass;
         try {
             env = myEnv;
+            enclClass = c;
             // class has not been translated yet
 
             TreeMaker savedMake = make;
@@ -970,6 +978,7 @@ public class TransTypes extends TreeTranslator {
             }
         } finally {
             env = oldEnv;
+            enclClass = oldEnclClass;
         }
     }
 
