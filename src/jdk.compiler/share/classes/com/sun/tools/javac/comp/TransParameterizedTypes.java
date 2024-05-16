@@ -46,6 +46,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
     private final Log log;
     private final InstructionVisitor parameterizedMethodCallVisitor;
 
+    private JCTreeCopier treeCopier;
     private Env<AttrContext> env = null;
     private Symbol.ClassSymbol currentClass = null;
     private JCTree.JCClassDecl currentClassTree = null;
@@ -91,6 +92,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
      */
     private Symbol enclosingArgParamDecl = null;
     private Symbol enclosingMethodTypeArgsParamDecl = null;
+    /**
+     * Field containing all the fields and blocks that are declared in the current class. These declarations must be
+     * moved to the constructor to be able to access the method parameters.
+     */
+    private ArrayList<JCTree.JCStatement> inlineAndBlockDecls = null;
     //endregion
 
     //region instantiation
@@ -143,11 +149,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var oldCurrentClassArgFields = currentClassArgFields;
         var oldInScopeBaseTypeParams = inScopeBaseTypeParams;
         var oldGeneratedDecl = generatedDecl;
+        var oldInlineAndBlockDecls = inlineAndBlockDecls;
 
         var isClassParameterized = tree.sym.type.getTypeArguments().nonEmpty();
         try {
             generatedDecl = new ArrayList<>();
             currentClass = tree.sym;
+            inlineAndBlockDecls = new ArrayList<>();
             if (currentClass.isStatic()) { // static classes cannot access the type of the outer classes
                 inScopeBaseTypeParams = List.nil();
             }
@@ -187,6 +195,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             currentClassArgFields = oldCurrentClassArgFields;
             inScopeBaseTypeParams = oldInScopeBaseTypeParams;
             generatedDecl = oldGeneratedDecl;
+            inlineAndBlockDecls = oldInlineAndBlockDecls;
         }
     }
 
@@ -241,6 +250,34 @@ public final class TransParameterizedTypes extends TreeTranslator {
     //endregion
 
     private void rewriteDefs(JCTree.JCClassDecl tree) {
+        // only filter if the class is parameterized
+        if (currentClassTree.type.getTypeArguments().nonEmpty()) {
+            // first, we filter out all the fields and blocks to avoid visiting them twice
+            var filteredDefs = new ListBuffer<JCTree>();
+            tree.defs.forEach(member -> {
+                switch (member.getTag()) {
+                    case VARDEF -> { // for field, we only filter out the INIT part
+                        var field = (JCTree.JCVariableDecl) member;
+                        filteredDefs.add(field);
+                        if (!field.sym.isStatic() && field.init != null) {
+                            inlineAndBlockDecls.add(make.Assignment(field.sym, field.init));
+                            field.init = null;
+                        }
+                    }
+                    case BLOCK -> {
+                        var block = (JCTree.JCBlock) member;
+                        if ((block.flags & Flags.STATIC) != 0) { // static blocks are ok
+                            filteredDefs.add(block);
+                        } else {
+                            inlineAndBlockDecls.add(block);
+                        }
+                    }
+                    default -> filteredDefs.add(member);
+                }
+            });
+            tree.defs = filteredDefs.toList();
+        }
+
         tree.defs.forEach(member -> {
             switch (member.getTag()) {
                 case METHODDEF -> {
@@ -252,11 +289,12 @@ public final class TransParameterizedTypes extends TreeTranslator {
                         rewriteBasicMethod(method);
                     }
                 }
-                // TODO add the class to a stack, to avoid too much recursion
                 case CLASSDEF -> rewriteClass((JCTree.JCClassDecl) member);
-                // TODO move blocks and field init to constructors to access the method param
+
+                // vardef and blocks here can only be fields without initialization and static blocks
                 case VARDEF -> parameterizedMethodCallVisitor.visitField((JCTree.JCVariableDecl) member);
                 case BLOCK -> parameterizedMethodCallVisitor.visitClassBlock((JCTree.JCBlock) member);
+
                 default -> throw new AssertionError("Unexpected member type: " + member.getTag());
             }
         });
@@ -310,6 +348,27 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
             // we then check whether the constructor calls another constructor
             var doesCallOverload = TreeInfo.hasConstructorCall(tree, names._this);
+            if (!doesCallOverload && !inlineAndBlockDecls.isEmpty()) {
+                var superCall = TreeInfo.findConstructorCall(tree);
+                if (superCall != null) { // if there is a superCall, we must insert instruction right after it
+                    var buffer = new ListBuffer<JCTree.JCStatement>();
+                    var bodyIterator = tree.body.stats.iterator();
+                    while (bodyIterator.hasNext()) {
+                        var next = bodyIterator.next();
+                        buffer.add(next);
+                        if ((next instanceof JCTree.JCExpressionStatement expr) && expr.expr == superCall) {
+                            break;
+                        }
+                    }
+                    inlineAndBlockDecls.forEach(e -> buffer.add(treeCopier.translate(e)));
+                    bodyIterator.forEachRemaining(buffer::add);
+                    tree.body.stats = buffer.toList();
+                } else { // otherwise we can just prepend the instructions
+                    for (var i = inlineAndBlockDecls.size() - 1; i >= 0; i--) {
+                        tree.body.stats = tree.body.stats.prepend(treeCopier.translate(inlineAndBlockDecls.get(i)));
+                    }
+                }
+            }
             if (!currentClass.isAnonymous() && positions.hasArg() && !doesCallOverload) {
                 setFieldsValues(tree);
             }
@@ -322,6 +381,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         enclosingArgParamDecl = oldEnclosingArgParamDecl;
         enclosingMethodTypeArgsParamDecl = oldEnclosingMethodTypeArgsParamDecl;
     }
+
 
     private void generateBackwardCompatibilityOverload(
         JCTree.JCMethodDecl method,
@@ -663,7 +723,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             var positions = types.typeArgPositions(sym).fitEnumConstructorPositions(tree.args, syms);
             // new EnumClass() does not have type args because it is the same for all labels, it can therefore be
             // created directly in the constructor body
-            if (positions.hasNoArg()) { // TODO
+            if (positions.hasNoArg()) {
                 super.visitNewClass(tree);
                 return;
             }
@@ -1440,8 +1500,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         });
     }
 
-
-
     /**
      * This method returns true only if the type parameter represented by typeApply is parameterized by a type parameter
      * declared by the current class.
@@ -1461,7 +1519,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 }
             }
 
-            // TODO maybe check tree.getClass to avoid missing cases
             @Override
             public void scan(JCTree tree) {
                 if (parameterized) return; // short-circuit
@@ -1481,17 +1538,91 @@ public final class TransParameterizedTypes extends TreeTranslator {
         typeApply.accept(visitor);
         return visitor.parameterized;
     }
+
+    private static final class JCTreeCopier extends TreeTranslator {
+
+        private final TreeMaker make;
+
+        public JCTreeCopier(TreeMaker make) {
+            this.make = make;
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T extends JCTree> T translate(T tree) {
+            if (tree == null) {
+                return null;
+            } else {
+                ((T) tree.clone()).accept(this);
+                JCTree tmpResult = this.result;
+                this.result = null;
+                return (T) tmpResult;
+            }
+        }
+
+        @Override
+        public void visitApply(JCTree.JCMethodInvocation tree) {
+            result = make.Apply(
+                tree.typeargs,
+                translate(tree.meth),
+                translate(tree.args)
+            ).setType(tree.type);
+        }
+
+        @Override
+        public void visitNewClass(JCTree.JCNewClass tree) {
+            var cl = make.NewClass(
+                translate(tree.encl),
+                translate(tree.typeargs),
+                translate(tree.clazz),
+                translate(tree.args),
+                translate(tree.def)
+            );
+            cl.setType(tree.type);
+            cl.constructor = tree.constructor;
+            cl.constructorType = tree.constructorType;
+            result = cl;
+        }
+
+        @Override
+        public void visitNewArray(JCTree.JCNewArray tree) {
+            var jcNewArray = make.NewArray(
+                translate(tree.elemtype),
+                translate(tree.dims),
+                translate(tree.elems)
+            );
+            jcNewArray.setType(tree.type);
+            jcNewArray.annotations = translate(tree.annotations);
+            var dimAnnotations = new ListBuffer<List<JCTree.JCAnnotation>>();
+            for (var dimAnnos : tree.dimAnnotations) {
+                var buffer = new ListBuffer<JCTree.JCAnnotation>();
+                for (var anno : dimAnnos) {
+                    buffer.add(translate(anno));
+                }
+                dimAnnotations.add(buffer.toList());
+            }
+            jcNewArray.dimAnnotations = dimAnnotations.toList();
+            result = jcNewArray.setType(tree.type);
+        }
+
+        @Override
+        public void visitTypeCast(JCTree.JCTypeCast tree) {
+            result = make.TypeCast(translate(tree.clazz), translate(tree.expr)).setType(tree.type);
+        }
+    }
     //endregion
 
     public JCTree translateTopLevelClass(Env<AttrContext> env, JCTree cdef, TreeMaker make) {
         try {
             this.make = make;
             this.env = env;
+            this.treeCopier = new JCTreeCopier(make);
 //            return cdef;
             return translate(cdef);
         } finally {
             this.make = null;
             this.env = null;
+            this.treeCopier = null;
         }
     }
 
