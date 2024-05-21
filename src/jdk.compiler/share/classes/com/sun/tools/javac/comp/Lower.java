@@ -2901,7 +2901,12 @@ public class Lower extends TreeTranslator {
                 lambdaTranslationMap = (tree.sym.flags() & SYNTHETIC) != 0 &&
                         tree.sym.name.startsWith(names.lambda) ?
                         makeTranslationMap(tree) : null;
-                super.visitMethodDef(tree);
+                try {
+                    super.visitMethodDef(tree);
+                } catch (Throwable t) {
+                    log.printRawLines(tree.toString());
+                    throw t;
+                }
             } finally {
                 lambdaTranslationMap = prevLambdaTranslationMap;
             }
@@ -3315,7 +3320,12 @@ public class Lower extends TreeTranslator {
         List<Type> argtypes = meth.type.getParameterTypes();
         if (meth.name == names.init && meth.owner == syms.enumSym && currentClass != syms.enumSym)
             argtypes = argtypes.tail.tail;
-        tree.args = boxArgs(argtypes, tree.args, tree.varargsElement);
+        try {
+            tree.args = boxArgs(argtypes, tree.args, tree.varargsElement);
+        } catch (Throwable t) {
+            log.printRawLines(tree + " // " + tree.args + " // " + argtypes);
+            throw t;
+        }
         tree.varargsElement = null;
         Name methName = TreeInfo.name(tree.meth);
         if (meth.name==names.init) {

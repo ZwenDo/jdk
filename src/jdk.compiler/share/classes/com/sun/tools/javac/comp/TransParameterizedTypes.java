@@ -26,6 +26,7 @@ import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.IntFunction;
+import java.util.ptype.ClassType;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -661,7 +662,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             try {
                 parameterizedMethodCallVisitor.visitMethod(method);
             } catch (Throwable t) {
-                debug(method, method.typarams, inScopeBaseTypeParams);
+                debug(method);
                 throw t;
             }
         } finally {
@@ -670,6 +671,8 @@ public final class TransParameterizedTypes extends TreeTranslator {
     }
 
     private final class InstructionVisitor extends TreeTranslator {
+
+        private Type currentReturnType = null;
 
         @Override
         public void visitApply(JCTree.JCMethodInvocation tree) {
@@ -831,13 +834,32 @@ public final class TransParameterizedTypes extends TreeTranslator {
         @Override
         public void visitLambda(JCTree.JCLambda tree) {
             tree.scopeTypeParameters = inScopeBaseTypeParams;
-            super.visitLambda(tree);
+            var oldReturnType = currentReturnType;
+            try {
+                currentReturnType = tree.getDescriptorType(types).asMethodType().getReturnType();
+                super.visitLambda(tree);
+            } finally {
+                currentReturnType = oldReturnType;
+            }
         }
 
         @Override
         public void visitReference(JCTree.JCMemberReference tree) {
             tree.scopeTypeParameters = inScopeBaseTypeParams;
             super.visitReference(tree);
+        }
+
+        @Override
+        public void visitReturn(JCTree.JCReturn tree) {
+            super.visitReturn(tree);
+            if (currentReturnType == null || !currentReturnType.isParameterized()) return;
+            if (tree.expr == null) {
+                throw new AssertionError("Should not be null " + currentReturnType);
+            }
+            var call = checkCastInvocation(-1);
+            var args = generateArgs(null, currentReturnType);
+            call.args = List.of(tree.expr, args);
+            tree.expr = call;
         }
 
         public void visitField(JCTree.JCVariableDecl field) {
@@ -860,8 +882,14 @@ public final class TransParameterizedTypes extends TreeTranslator {
             if (method.body == null) { // abstract method
                 return;
             }
-            addParameterizedArgumentTypeChecking(method);
-            method.body.accept(this);
+            var oldMethod = currentReturnType;
+            currentReturnType = method.sym.type;
+            try {
+                addParameterizedArgumentTypeChecking(method);
+                method.body.accept(this);
+            } finally {
+                currentReturnType = oldMethod;
+            }
         }
 
         public void visitClassBlock(JCTree.JCBlock block) {
@@ -880,7 +908,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             var instructions = method.body.stats;
             for (JCTree.JCVariableDecl param : method.params) {
                 // we check parameterized type and type vars
-                if (!param.type.tsym.hasNewGenerics() || (!param.type.isParameterized() && !(param.type instanceof Type.TypeVar))) {
+                if ((param.type instanceof ClassType && !param.type.tsym.hasNewGenerics()) || (!(param.type instanceof Type.TypeVar) && !param.type.isParameterized())) {
                     continue;
                 }
 
