@@ -3391,8 +3391,6 @@ public class Lower extends TreeTranslator {
     }
 
     List<JCExpression> boxArgs(List<Type> parameters, List<JCExpression> _args, Type varargsElement) {
-        var a = _args;
-        var p = parameters;
         List<JCExpression> args = _args;
         if (parameters.isEmpty()) return args;
         boolean anyChanges = false;

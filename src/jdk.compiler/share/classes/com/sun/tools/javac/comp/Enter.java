@@ -500,7 +500,10 @@ public class Enter extends JCTree.Visitor {
         typeEnvs.put(c, localEnv);
 
         // 0 in case the package is java.util.ptype to avoid any infinite loop during casts
-        var newGenericsFlag = names.java_util_ptype.equals(c.packge().name) ? 0 : NEW_GENERICS;
+        var newGenericsFlag = (
+            names.java_util_ptype.equals(c.packge().name)
+            || c.packge().getQualifiedName().startsWith(names.java_lang)
+        ) ? 0 : NEW_GENERICS;
         // Fill out class fields.
         c.completer = Completer.NULL_COMPLETER; // do not allow the initial completer linger on.
         c.flags_field = chk.checkFlags(tree.pos(), tree.mods.flags, c, tree) | FROM_SOURCE | newGenericsFlag;

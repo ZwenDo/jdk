@@ -1345,7 +1345,7 @@ public class Types {
         var actualOwner = isConstructor && symbol.owner.isAnonymous()
             ? ((ClassSymbol) symbol.owner).getSuperclass().tsym
             : symbol.owner;
-        if (!symbol.owner.hasNewGenerics() || !actualOwner.hasNewGenerics() || !(symbol instanceof MethodSymbol)) {
+        if (!symbol.owner.hasNewGenerics() || !actualOwner.hasNewGenerics() || !(symbol instanceof MethodSymbol) || (symbol.flags() & NATIVE) != 0 || isIntrinsicMethod(symbol)) {
             return ArgPosition.NONE;
         }
 
@@ -1391,6 +1391,15 @@ public class Types {
     public ArgPosition typeArgPositions(Symbol symbol) {
         Objects.requireNonNull(symbol);
         return typeArgPositions(symbol, false);
+    }
+
+    private boolean isIntrinsicMethod(Symbol sym) {
+        for (var annotation : sym.getAnnotationMirrors()) {
+            if (annotation.type.tsym.name.contentEquals("IntrinsicCandidate")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static final class ArgPosition {

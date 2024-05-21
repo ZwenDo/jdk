@@ -231,6 +231,9 @@ public class Names {
     public final Name enumSwitch;
     public final Name enumConstant;
 
+    // annotation names
+    public final Name intrinsicCandidate;
+
     public final Name.Table table;
 
     @SuppressWarnings("this-escape")
@@ -417,6 +420,9 @@ public class Names {
         typeSwitch = fromString("typeSwitch");
         enumSwitch = fromString("enumSwitch");
         enumConstant = fromString("enumConstant");
+
+        // annotation names
+        intrinsicCandidate = fromString("IntrinsicCandidate");
     }
 
     protected Name.Table createTable(Options options) {
