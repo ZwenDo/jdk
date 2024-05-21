@@ -4998,6 +4998,10 @@ public class Types {
 
         boolean high;
         boolean rewriteTypeVars;
+        // map to avoid visiting same type argument twice, like in Foo<T>.Bar<T>
+        Map<Type, Type> argMap = new HashMap<>();
+        // cycle detection within an argument, see JDK-8324809
+        Set<Type> seen = new HashSet<>();
 
         Rewriter(boolean high, boolean rewriteTypeVars) {
             this.high = high;
@@ -5009,7 +5013,10 @@ public class Types {
             ListBuffer<Type> rewritten = new ListBuffer<>();
             boolean changed = false;
             for (Type arg : t.allparams()) {
-                Type bound = visit(arg);
+                Type bound = argMap.get(arg);
+                if (bound == null) {
+                    argMap.put(arg, bound = visit(arg));
+                }
                 if (arg != bound) {
                     changed = true;
                 }
@@ -5038,13 +5045,17 @@ public class Types {
 
         @Override
         public Type visitTypeVar(TypeVar t, Void s) {
-            if (rewriteTypeVars) {
-                Type bound = t.getUpperBound().contains(t) ?
-                        erasure(t.getUpperBound()) :
-                        visit(t.getUpperBound());
-                return rewriteAsWildcardType(bound, t, EXTENDS);
+            if (seen.add(t)) {
+                if (rewriteTypeVars) {
+                    Type bound = t.getUpperBound().contains(t) ?
+                            erasure(t.getUpperBound()) :
+                            visit(t.getUpperBound());
+                    return rewriteAsWildcardType(bound, t, EXTENDS);
+                } else {
+                    return t;
+                }
             } else {
-                return t;
+                return rewriteTypeVars ? makeExtendsWildcard(syms.objectType, t) : t;
             }
         }
 
