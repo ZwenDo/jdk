@@ -1377,13 +1377,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
      */
     public static final class ScopeTypeParameter {
 
-        private static final ScopeTypeParameter EMPTY = new ScopeTypeParameter(
-            com.sun.tools.javac.util.List.nil(),
-            i -> {
-                throw new AssertionError("No argument access factory for empty scope");
-            }
-        );
-
         // we could use a HashMap<Name, Integer> to avoid the indexOf calls but as most classes have few type parameters,
         // it does not change much
         private final java.util.List<Name> variableParamNames;
@@ -1400,7 +1393,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         public int indexOf(Name name) {
             return variableParamNames.indexOf(name);
         }
-
 
         private IntFunction<? extends JCTree.JCExpression> argAccessFactory() {
             return argAccessFactory;
