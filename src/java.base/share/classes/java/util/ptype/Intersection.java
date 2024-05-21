@@ -1,9 +1,5 @@
 package java.util.ptype;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
-
 /**
  * Represents an intersection type.
  */
@@ -14,7 +10,7 @@ public non-sealed interface Intersection extends Arg {
      *
      * @return the bounds
      */
-    List<Arg> bounds();
+    ArgList bounds();
 
     /**
      * Creates an {@link Intersection} from the given varargs of bounds.
@@ -23,8 +19,8 @@ public non-sealed interface Intersection extends Arg {
      * @return the {@link Intersection}
      */
     static Intersection of(Arg... bounds) {
-        Objects.requireNonNull(bounds);
-        return of(Arrays.asList(bounds));
+        Utils.requireNonNull(bounds);
+        return of(ArgList.of(bounds));
     }
 
     /**
@@ -33,37 +29,34 @@ public non-sealed interface Intersection extends Arg {
      * @param bounds the bounds
      * @return the {@link Intersection}
      */
-    static Intersection of(List<Arg> bounds) {
-        Objects.requireNonNull(bounds);
+    static Intersection of(ArgList bounds) {
+        Utils.requireNonNull(bounds);
         if (bounds.size() < 2) {
             throw new IllegalArgumentException("bounds.size() < 2");
         }
         // TODO check that first bound is a class and that all other bounds are interfaces + bounds are distinct
-        var boundsCopy = List.copyOf(bounds);
         return new Intersection() {
 
             @Override
             public void appendTo(StringBuilder builder) {
-                Objects.requireNonNull(builder);
-                var index = 0;
-                for (var bound : boundsCopy) {
+                Utils.requireNonNull(builder);
+                bounds.forEachIndexed((index, bound) -> {
                     bound.appendTo(builder);
-                    index++;
-                    if (index < boundsCopy.size()) {
+                    if (index < bounds.size() - 1) {
                         builder.append(" & ");
                     }
-                }
+                });
             }
 
             @Override
             public boolean isAssignable(Arg actual) {
-                Objects.requireNonNull(actual);
-                return boundsCopy.stream().allMatch((bound) -> bound.isAssignable(actual));
+                Utils.requireNonNull(actual);
+                return bounds.allMatch((bound) -> bound.isAssignable(actual));
             }
 
             @Override
-            public List<Arg> bounds() {
-                return boundsCopy;
+            public ArgList bounds() {
+                return bounds;
             }
 
             @Override

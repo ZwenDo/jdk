@@ -1,7 +1,5 @@
 package java.util.ptype;
 
-import java.util.Objects;
-
 /**
  * Represents an inner class type.
  */
@@ -29,13 +27,13 @@ public non-sealed interface InnerClassType extends Arg {
      * @return the {@link InnerClassType}
      */
     static InnerClassType of(Arg outerType, Arg innerType) {
-        Objects.requireNonNull(outerType);
-        Objects.requireNonNull(innerType);
+        Utils.requireNonNull(outerType);
+        Utils.requireNonNull(innerType);
         return new InnerClassType() {
 
             @Override
             public void appendTo(StringBuilder builder) {
-                Objects.requireNonNull(builder);
+                Utils.requireNonNull(builder);
                 outerType.appendTo(builder);
                 builder.append(".");
                 innerType.appendTo(builder);
@@ -43,10 +41,10 @@ public non-sealed interface InnerClassType extends Arg {
 
             @Override
             public boolean isAssignable(Arg actual) {
-                Objects.requireNonNull(actual);
+                Utils.requireNonNull(actual);
                 return switch (actual) {
                     case InnerClassType innerClassType -> outerType.isAssignable(innerClassType.outerType()) &&
-                        innerType.isAssignable(innerClassType.innerType());
+                                                          innerType.isAssignable(innerClassType.innerType());
                     case ClassType ignored -> false;
                     case Intersection ignored -> false;
                     case ParameterizedType ignored -> false;

@@ -1,7 +1,5 @@
 package java.util.ptype;
 
-import java.util.Objects;
-
 /**
  * Represents a raw type.
  */
@@ -24,7 +22,7 @@ public non-sealed interface RawType extends Arg {
      * @return the {@link RawType}
      */
     static RawType of(Class<?> type) {
-        Objects.requireNonNull(type);
+        Utils.requireNonNull(type);
         return new RawType() {
             @Override
             public Class<?> type() {
@@ -33,14 +31,13 @@ public non-sealed interface RawType extends Arg {
 
             @Override
             public boolean isAssignable(Arg actual) {
-                Objects.requireNonNull(actual);
+                Utils.requireNonNull(actual);
                 return switch (actual) {
                     case ParameterizedType parameterizedType -> type().equals(parameterizedType.rawType());
                     case RawType rawType -> type.equals(rawType.type());
                     case Intersection intersection -> intersection.bounds()
-                        .stream()
                         .anyMatch(this::isAssignable);
-                    case Wildcard wildcard -> wildcard.upperBound().stream().anyMatch(this::isAssignable);
+                    case Wildcard wildcard -> wildcard.upperBound().anyMatch(this::isAssignable);
                     case InnerClassType ignored -> false;
                     case ArrayType ignored -> false;
                     case ClassType ignored -> false;
@@ -49,7 +46,7 @@ public non-sealed interface RawType extends Arg {
 
             @Override
             public void appendTo(StringBuilder builder) {
-                Objects.requireNonNull(builder);
+                Utils.requireNonNull(builder);
                 builder.append(type.getSimpleName());
                 builder.append("<raw type>");
             }

@@ -132,7 +132,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
     public void visitClassDef(JCTree.JCClassDecl tree) {
         result = tree;
         notInJavaLang = !tree.sym.packge().getQualifiedName().startsWith(names.java_lang);
-        if (notInJavaLang && !tree.sym.hasNewGenerics()) return;
+//        if (!tree.sym.hasNewGenerics()) return;
         try {
             inScopeBaseTypeParams = List.nil();
             rewriteClass(tree);
@@ -880,7 +880,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             var instructions = method.body.stats;
             for (JCTree.JCVariableDecl param : method.params) {
                 // we check parameterized type and type vars
-                if (!param.type.isParameterized() && !(param.type instanceof Type.TypeVar)) {
+                if (!param.type.tsym.hasNewGenerics() || (!param.type.isParameterized() && !(param.type instanceof Type.TypeVar))) {
                     continue;
                 }
 

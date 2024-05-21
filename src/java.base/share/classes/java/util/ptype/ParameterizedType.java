@@ -1,8 +1,5 @@
 package java.util.ptype;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
 
 /**
  * Represents a parameterized type.
@@ -21,43 +18,41 @@ public non-sealed interface ParameterizedType extends Arg {
      *
      * @return the type arguments
      */
-    List<Arg> typeArgs();
+    ArgList typeArgs();
 
     /**
-     * Creates a {@link ParameterizedType} from the given raw type and list of type arguments.
+     * Creates a {@link ParameterizedType} from the given raw type and type arguments.
      *
-     * @param type the raw type
-     * @param args the type arguments
+     * @param type  the raw type
+     * @param args  the type arguments
      * @return the {@link ParameterizedType}
      */
-    static ParameterizedType of(Class<?> type, List<Arg> args) {
-        Objects.requireNonNull(type);
-        Objects.requireNonNull(args);
-        if (args.isEmpty()) {
+    static ParameterizedType of(Class<?> type, Arg... args) {
+        Utils.requireNonNull(type);
+        Utils.requireNonNull(args);
+        if (args.length == 0) {
             throw new IllegalArgumentException("args is empty");
         }
-        var argsCopy = List.copyOf(args);
+        var argsCopy = ArgList.of(args);
         return new ParameterizedType() {
 
             @Override
             public void appendTo(StringBuilder builder) {
-                Objects.requireNonNull(builder);
+                Utils.requireNonNull(builder);
                 builder.append(rawType().getSimpleName());
                 builder.append("<");
-                var index = 0;
-                for (var arg : typeArgs()) {
+                typeArgs().forEachIndexed((index, arg) -> {
                     arg.appendTo(builder);
-                    index++;
-                    if (index < typeArgs().size()) {
+                    if (index < argsCopy.size() - 1) {
                         builder.append(", ");
                     }
-                }
+                });
                 builder.append(">");
             }
 
             @Override
             public boolean isAssignable(Arg actual) {
-                Objects.requireNonNull(actual);
+                Utils.requireNonNull(actual);
                 return switch (actual) {
                     case ParameterizedType parameterizedType -> {
                         if ( // return false if the raw types are not assignable or if the number of type args is different
@@ -80,8 +75,8 @@ public non-sealed interface ParameterizedType extends Arg {
                         yield true;
                     }
                     case RawType rawType -> type.equals(rawType.type());
-                    case Wildcard wildcard -> wildcard.upperBound().stream().anyMatch(this::isAssignable);
-                    case Intersection intersection -> intersection.bounds().stream().allMatch(this::isAssignable);
+                    case Wildcard wildcard -> wildcard.upperBound().anyMatch(this::isAssignable);
+                    case Intersection intersection -> intersection.bounds().allMatch(this::isAssignable);
                     case InnerClassType ignored -> false;
                     case ClassType ignored -> false;
                     case ArrayType ignored -> false;
@@ -94,7 +89,7 @@ public non-sealed interface ParameterizedType extends Arg {
             }
 
             @Override
-            public List<Arg> typeArgs() {
+            public ArgList typeArgs() {
                 return argsCopy;
             }
 
@@ -104,22 +99,6 @@ public non-sealed interface ParameterizedType extends Arg {
             }
 
         };
-    }
-
-    /**
-     * Creates a {@link ParameterizedType} from the given raw type and type arguments.
-     *
-     * @param type  the raw type
-     * @param args  the type arguments
-     * @return the {@link ParameterizedType}
-     */
-    static ParameterizedType of(Class<?> type, Arg... args) {
-        Objects.requireNonNull(type);
-        if (args.length == 0) {
-            throw new IllegalArgumentException("args is empty");
-        }
-        // even if asList is not copying the array, it's fine, the overload makes a defensive copy of the list
-        return of(type, Arrays.asList(args));
     }
 
 }

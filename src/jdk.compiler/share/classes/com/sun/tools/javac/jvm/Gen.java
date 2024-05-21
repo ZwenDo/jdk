@@ -142,6 +142,7 @@ public class Gen extends JCTree.Visitor {
     private final boolean genCrt;
     private final boolean debugCode;
     private boolean disableVirtualizedPrivateInvoke;
+    private ClassSymbol topLevelClass;
 
     /** Code buffer, set by genMethod.
      */
@@ -2172,6 +2173,7 @@ public class Gen extends JCTree.Visitor {
                 }
                 break;
             case NULLCHK:
+                if (names.java_util_ptype.equals(topLevelClass.packge().getQualifiedName())) break; // ignore null check for java.util.ptype
                 if (syms.objectsType.tsym.hasNewGenerics()) {
                     code.emitop0(aconst_null); // because requireNonNull expects a methodTypeArg as first argument
                 }
@@ -2481,6 +2483,7 @@ public class Gen extends JCTree.Visitor {
      */
     public boolean genClass(Env<AttrContext> env, JCClassDecl cdef) {
         try {
+            topLevelClass = cdef.sym;
             attrEnv = env;
             ClassSymbol c = cdef.sym;
             this.toplevel = env.toplevel;
@@ -2511,6 +2514,7 @@ public class Gen extends JCTree.Visitor {
             return nerrs == 0;
         } finally {
             // note: this method does NOT support recursion.
+            toplevel = null;
             attrEnv = null;
             this.env = null;
             toplevel = null;

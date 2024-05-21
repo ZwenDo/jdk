@@ -501,7 +501,7 @@ public class Enter extends JCTree.Visitor {
 
         // 0 in case the package is java.util.ptype to avoid any infinite loop during casts
         var newGenericsFlag = (
-            names.java_util_ptype.equals(c.packge().name)
+            names.java_util_ptype.contentEquals(c.packge().getQualifiedName())
             || c.packge().getQualifiedName().startsWith(names.java_lang)
         ) ? 0 : NEW_GENERICS;
         // Fill out class fields.

@@ -1,9 +1,6 @@
 package java.util.ptype;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Utility methods for working with {@link Arg}s.
@@ -19,17 +16,18 @@ public final class TypeArgUtils {
      * @return the {@link Arg}
      */
     public static Arg toSuper(Arg concrete, Class<?> superType, int... indices) {
-        Objects.requireNonNull(concrete);
-        Objects.requireNonNull(superType);
+        Utils.requireNonNull(concrete);
+        Utils.requireNonNull(superType);
         if (indices.length == 0) {
             throw new IllegalArgumentException("indices.length == 0");
         }
         return switch (concrete) {
             case RawType ignored -> RawType.of(superType);
             case ParameterizedType p -> {
-                var args = Arrays.stream(indices)
-                    .mapToObj(p.typeArgs()::get)
-                    .toList();
+                var args = new Arg[indices.length];
+                for (var arg : indices) {
+                    args[arg] = p.typeArgs().get(arg);
+                }
                 yield ParameterizedType.of(superType, args);
             }
             default -> throw new AssertionError("Unexpected value: " + concrete);
@@ -44,11 +42,14 @@ public final class TypeArgUtils {
      * @return the {@link Arg}
      */
     public static Arg getArg(Object concrete, Class<?> supertype) {
-        Objects.requireNonNull(concrete);
-        Objects.requireNonNull(supertype);
-        return ArgHandle.of(concrete.getClass())
-            .arg(concrete, supertype)
-            .orElseThrow(() -> new IllegalArgumentException("Object " + concrete + " is not an instance of " + supertype));
+        Utils.requireNonNull(concrete);
+        Utils.requireNonNull(supertype);
+        var arg = ArgHandle.of(concrete.getClass())
+            .arg(concrete, supertype);
+        if (arg.isEmpty()) {
+            throw new IllegalArgumentException("Object " + concrete + " is not an instance of " + supertype);
+        }
+        return arg.get();
     }
 
     /**
@@ -59,7 +60,7 @@ public final class TypeArgUtils {
      * @return the {@link Arg}
      */
     public static Arg getArg(Arg concrete, int... indices) {
-        Objects.requireNonNull(concrete);
+        Utils.requireNonNull(concrete);
         if (indices.length == 0) {
             throw new IllegalArgumentException("indices.length == 0");
         }
@@ -72,8 +73,8 @@ public final class TypeArgUtils {
      * @param type the type
      * @return the {@link Arg}s
      */
-    public static List<Arg> getGenericSupertypes(Class<?> type) {
-        Objects.requireNonNull(type);
+    public static ArgList getGenericSupertypes(Class<?> type) {
+        Utils.requireNonNull(type);
         return Internal.staticArgs(type);
     }
 
@@ -85,8 +86,8 @@ public final class TypeArgUtils {
      * @return the array
      */
     public static Object addArrayTypeArg(Object array, ArrayType arrayType) {
-        Objects.requireNonNull(array);
-        Objects.requireNonNull(arrayType);
+        Utils.requireNonNull(array);
+        Utils.requireNonNull(arrayType);
         Internal.addArrayTypeArg(array, arrayType);
         return array;
     }
@@ -97,8 +98,8 @@ public final class TypeArgUtils {
      * @param array the array
      * @return the {@link Arg}
      */
-    public static Optional<ArrayType> arrayType(Object array) {
-        Objects.requireNonNull(array);
+    public static ArgOptional arrayType(Object array) {
+        Utils.requireNonNull(array);
         return Internal.arrayType(array);
     }
 
@@ -109,7 +110,7 @@ public final class TypeArgUtils {
      * @return the name of the field
      */
     public static String typeArgsFieldName(Class<?> clazz) {
-        Objects.requireNonNull(clazz);
+        Utils.requireNonNull(clazz);
         var pkg = clazz.getPackageName();
         var substringSize = pkg.isEmpty() ? 0 : pkg.length() + 1;
         var name = clazz.getName().substring(substringSize).replace('.', '$');

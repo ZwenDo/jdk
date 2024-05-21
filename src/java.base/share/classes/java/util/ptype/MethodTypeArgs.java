@@ -1,8 +1,5 @@
 package java.util.ptype;
 
-import java.util.Arrays;
-import java.util.Objects;
-
 /**
  * Represents the type arguments of a method.
  */
@@ -10,7 +7,7 @@ public interface MethodTypeArgs {
 
     /**
      * Gets the type argument at the given index.
-     * 
+     *
      * @param index the index of the type argument
      * @return the type argument at the given index
      */
@@ -18,7 +15,7 @@ public interface MethodTypeArgs {
 
     /**
      * Creates a new instance of {@code MethodTypeArgs} with the given type arguments.
-     * 
+     *
      * @param args the type arguments
      * @return a new instance of {@code MethodTypeArgs} with the given type arguments
      */
@@ -26,32 +23,29 @@ public interface MethodTypeArgs {
         if (args.length == 0) {
             throw new IllegalArgumentException("args.length == 0");
         }
-        var argsCopy = Arrays.copyOf(args, args.length);
+        var argsCopy = ArgList.of(args);
         return new MethodTypeArgs() {
-            
+
             @Override
             public Arg arg(int index) {
-                Objects.checkIndex(index, argsCopy.length);
-                return argsCopy[index];
+                return argsCopy.get(index);
             }
 
             @Override
             public String toString() {
                 var builder = new StringBuilder();
                 builder.append("<");
-                var index = 0;
-                for (var arg : argsCopy) {
+                argsCopy.forEachIndexed((index, arg) -> {
                     builder.append(arg.toString());
-                    index++;
-                    if (index < argsCopy.length) {
+                    if (index < argsCopy.size() - 1) {
                         builder.append(", ");
                     }
-                }
+                });
                 builder.append(">");
                 return builder.toString();
             }
 
         };
     }
-    
+
 }

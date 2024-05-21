@@ -1,6 +1,5 @@
 package java.util.ptype;
 
-import java.util.Objects;
 
 /**
  * Represents a class type.
@@ -21,25 +20,23 @@ public non-sealed interface ClassType extends Arg {
      * @return the {@link ClassType}
      */
     static ClassType of(Class<?> type) {
-        Objects.requireNonNull(type);
+        Utils.requireNonNull(type);
         return new ClassType() {
 
             @Override
             public void appendTo(StringBuilder builder) {
-                Objects.requireNonNull(builder);
+                Utils.requireNonNull(builder);
                 builder.append(type.getSimpleName());
             }
 
             @Override
             public boolean isAssignable(Arg actual) {
-                Objects.requireNonNull(actual);
+                Utils.requireNonNull(actual);
                 return switch (actual) {
                     case ClassType classType -> type.equals(classType.type());
                     case Intersection intersection -> intersection.bounds()
-                        .stream()
                         .anyMatch(this::isAssignable);
                     case Wildcard wildcard -> wildcard.upperBound()
-                        .stream()
                         .anyMatch(this::isAssignable);
                     case RawType ignored -> false;
                     case ArrayType ignored -> false;

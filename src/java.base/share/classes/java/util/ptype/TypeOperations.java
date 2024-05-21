@@ -1,7 +1,5 @@
 package java.util.ptype;
 
-import java.util.Objects;
-
 /**
  * Utility methods for working with {@link Arg}s.
  */
@@ -16,7 +14,7 @@ public final class TypeOperations {
      */
     @SuppressWarnings("unchecked")
     public static Object checkCast(Object obj, Arg expected) {
-        Objects.requireNonNull(expected);
+        Utils.requireNonNull(expected);
         if (obj == null) {
             return null;
         }
@@ -36,9 +34,12 @@ public final class TypeOperations {
                 if (!isInstance(obj, innerClassType.innerType())) { // check inner type
                     yield false;
                 }
-                yield Internal.outerThis(obj)
-                    .map(arg -> isInstance(arg, innerClassType.outerType()))
-                    .orElse(true); // by default if no outer type is specified, yield true
+                var outer = Internal.outerThis(obj);
+                if (outer.isPresent()) {
+                    yield isInstance(outer.get(), innerClassType.outerType());
+                } else { // by default if no outer type is specified, yield true
+                    yield true;
+                }
             }
 
             // var cast = (String) obj;
@@ -51,16 +52,19 @@ public final class TypeOperations {
             case ParameterizedType parameterizedType -> validate(obj, expected, parameterizedType.rawType());
 
             // var cast = (Runnable & Serializable) obj;
-            case Intersection intersection -> intersection.bounds().stream().allMatch(bound -> isInstance(obj, bound));
+            case Intersection intersection -> intersection.bounds().allMatch(bound -> isInstance(obj, bound));
 
             // var cast = (List<String>[]) obj;
             case ArrayType arrayType -> {
                 if (!obj.getClass().isArray()) {
                     yield false;
                 }
-                yield Internal.arrayType(obj)
-                    .map(arrayType::isAssignable)
-                    .orElse(true);
+                var arg = Internal.arrayType(obj);
+                if (arg.isPresent()) {
+                    yield arrayType.isAssignable(arg.get());
+                } else {
+                    yield true;
+                }
             }
 
             // Note that this kind of cast should not be possible
@@ -74,8 +78,10 @@ public final class TypeOperations {
     private static boolean validate(Object obj, Arg expected, Class<?> supertype) {
         var objClass = obj.getClass();
         var opt = Internal.argHandle(objClass).arg(obj, supertype);
-        return opt.map(expected::isAssignable)
-            .orElseGet(() -> supertype.isAssignableFrom(objClass));
+        if (opt.isEmpty()) {
+            return supertype.isAssignableFrom(objClass);
+        }
+        return expected.isAssignable(opt.get());
     }
 
     private static String message(Object obj, Arg expected) {
@@ -85,12 +91,13 @@ public final class TypeOperations {
             .append(obj)
             .append(" (");
 
-        Internal.argHandle(objClass)
-            .arg(obj, objClass)
-            .ifPresentOrElse(
-                arg -> arg.appendTo(builder),
-                () -> builder.append(objClass.getName())
-            );
+        var arg = Internal.argHandle(objClass)
+            .arg(obj, objClass);
+        if (arg.isPresent()) {
+            arg.get().appendTo(builder);
+        } else {
+            builder.append(objClass.getName());
+        }
 
         builder.append(") to ");
         expected.appendTo(builder);

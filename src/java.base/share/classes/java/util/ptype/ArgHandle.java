@@ -1,8 +1,6 @@
 package java.util.ptype;
 
 import java.lang.invoke.MethodHandle;
-import java.util.Objects;
-import java.util.Optional;
 
 /**
  * A handle to get the {@link Arg} of a type.
@@ -14,9 +12,9 @@ public interface ArgHandle {
      *
      * @param holder    the holder of the field
      * @param supertype the supertype represented by the field
-     * @return an {@link Optional} containing the {@link Arg} if the field exists
+     * @return an Optional containing the {@link Arg} if the field exists
      */
-    Optional<Arg> arg(Object holder, Class<?> supertype);
+    ArgOptional arg(Object holder, Class<?> supertype);
 
     /**
      * Creates an {@link ArgHandle} for the given type.
@@ -25,19 +23,20 @@ public interface ArgHandle {
      * @return the {@link ArgHandle}
      */
     static ArgHandle of(Class<?> type) {
-        Objects.requireNonNull(type);
+        Utils.requireNonNull(type);
         return new ArgHandle() {
-            private final ClassValue<Optional<MethodHandle>> cache = new ClassValue<>() {
+            private final ClassValue<MethodHandle> cache = new ClassValue<>() {
 
                 @Override
-                protected Optional<MethodHandle> computeValue(Class<?> supertype) {
-                    Objects.requireNonNull(supertype);
+                protected MethodHandle computeValue(Class<?> supertype) {
+                    Utils.requireNonNull(supertype);
                     try {
                         var name = TypeArgUtils.typeArgsFieldName(supertype);
                         var getter = Internal.lookup().findGetter(type, name, Arg.class);
-                        return Optional.of(getter);
+                        Utils.requireNonNull(getter);
+                        return getter;
                     } catch (NoSuchFieldException e) {
-                        return Optional.empty();
+                        return null;
                     } catch (Throwable throwable) {
                         throw new AssertionError(throwable);
                     }
@@ -46,17 +45,19 @@ public interface ArgHandle {
             };
 
             @Override
-            public Optional<Arg> arg(Object holder, Class<?> supertype) {
-                Objects.requireNonNull(holder);
-                Objects.requireNonNull(supertype);
-                return cache.get(supertype)
-                    .map(getter -> {
-                        try {
-                            return (Arg) getter.invoke(holder);
-                        } catch (Throwable throwable) {
-                            throw new AssertionError(throwable);
-                        }
-                    });
+            public ArgOptional arg(Object holder, Class<?> supertype) {
+                Utils.requireNonNull(holder);
+                Utils.requireNonNull(supertype);
+                var result = cache.get(supertype);
+                if (result == null) {
+                    return null;
+                }
+                try {
+                    return ArgOptional.of((Arg) result.invoke(holder));
+                } catch (Throwable throwable) {
+                    throw new AssertionError(throwable);
+                }
+
             }
 
         };

@@ -1,7 +1,5 @@
 package java.util.ptype;
 
-import java.util.Objects;
-
 /**
  * Represents an array type.
  */
@@ -25,14 +23,14 @@ public non-sealed interface ArrayType extends Arg {
 
             @Override
             public void appendTo(StringBuilder builder) {
-                Objects.requireNonNull(builder);
+                Utils.requireNonNull(builder);
                 componentTypeArgs.appendTo(builder);
                 builder.append("[]");
             }
 
             @Override
             public boolean isAssignable(Arg actual) {
-                Objects.requireNonNull(actual);
+                Utils.requireNonNull(actual);
                 return switch (actual) {
                     case ArrayType arrayType -> componentTypeArgs.isAssignable(arrayType.componentType());
                     case ClassType ignored -> false;

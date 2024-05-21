@@ -6,9 +6,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.WeakHashMap;
 
@@ -19,26 +16,26 @@ final class Internal {
     private static final ClassValue<ArgHandle> ARG_HANDLE_CACHE = new ClassValue<>() {
         @Override
         protected ArgHandle computeValue(Class<?> type) {
-            Objects.requireNonNull(type);
+            Utils.requireNonNull(type);
             return ArgHandle.of(type);
         }
     };
 
-    private static final ClassValue<List<Arg>> STATIC_ARG_CACHE = new ClassValue<>() {
+    private static final ClassValue<ArgList> STATIC_ARG_CACHE = new ClassValue<>() {
         @Override
-        protected List<Arg> computeValue(Class<?> type) {
-            Objects.requireNonNull(type);
+        protected ArgList computeValue(Class<?> type) {
+            Utils.requireNonNull(type);
             var superclass = type.getGenericSuperclass();
             var genericInterfaces = type.getGenericInterfaces();
-            var list = new ArrayList<Arg>(genericInterfaces.length + (superclass != null ? 1 : 0));
-
+            var array = new Arg[genericInterfaces.length + (superclass != null ? 1 : 0)];
+            var index = 0;
             if (superclass != null) {
-                list.add(Arg.fromType(superclass));
+                array[index++] = Arg.fromType(superclass);
             }
             for (var superinterface : genericInterfaces) {
-                list.add(Arg.fromType(superinterface));
+                array[index++] = Arg.fromType(superinterface);
             }
-            return List.copyOf(list);
+            return ArgList.of(array);
         }
     };
 
@@ -49,37 +46,37 @@ final class Internal {
     }
 
     public static ArgHandle argHandle(Class<?> type) {
-        Objects.requireNonNull(type);
+        Utils.requireNonNull(type);
         synchronized (ARG_HANDLE_CACHE) {
             return ARG_HANDLE_CACHE.get(type);
         }
     }
 
-    public static List<Arg> staticArgs(Class<?> type) {
-        Objects.requireNonNull(type);
+    public static ArgList staticArgs(Class<?> type) {
+        Utils.requireNonNull(type);
         synchronized (STATIC_ARG_CACHE) {
             return STATIC_ARG_CACHE.get(type);
         }
     }
 
-    public static Optional<ArrayType> arrayType(Object array) {
-        Objects.requireNonNull(array);
+    public static ArgOptional arrayType(Object array) {
+        Utils.requireNonNull(array);
         if (!array.getClass().isArray()) {
             throw new IllegalArgumentException("Object " + array + " is not an array");
         }
         synchronized (ARRAY_TYPE_STORAGE) {
-            return Optional.ofNullable(ARRAY_TYPE_STORAGE.get(array));
+            return ArgOptional.ofNullable(ARRAY_TYPE_STORAGE.get(array));
         }
     }
 
-    public static Optional<Object> outerThis(Object obj) {
-        Objects.requireNonNull(obj);
+    public static RawOptional outerThis(Object obj) {
+        Utils.requireNonNull(obj);
         var handle = outerFieldGetter(obj.getClass());
         if (handle == null) {
-            return Optional.empty();
+            return RawOptional.empty();
         }
         try {
-            return Optional.of(handle.invoke(obj));
+            return RawOptional.of(handle.invoke(obj));
         } catch (Throwable e) {
             throw new AssertionError(e);
         }
@@ -132,8 +129,8 @@ final class Internal {
     }
 
     public static void addArrayTypeArg(Object array, ArrayType arrayType) {
-        Objects.requireNonNull(array);
-        Objects.requireNonNull(arrayType);
+        Utils.requireNonNull(array);
+        Utils.requireNonNull(arrayType);
         if (!array.getClass().isArray()) {
             throw new IllegalArgumentException("Object " + array + " is not an array");
         }

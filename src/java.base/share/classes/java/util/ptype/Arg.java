@@ -4,8 +4,6 @@ import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
-import java.util.Arrays;
-import java.util.Objects;
 
 /**
  * All possible type representations.
@@ -34,22 +32,18 @@ public sealed interface Arg permits ArrayType, ClassType, InnerClassType, Inters
      * @return the {@link Arg}
      */
     static Arg fromType(Type type) {
-        Objects.requireNonNull(type);
+        Utils.requireNonNull(type);
         return switch (type) {
             case Class<?> clazz -> ClassType.of(clazz);
-            case java.lang.reflect.ParameterizedType parameterizedType -> {
-                var args = Arrays.stream(parameterizedType.getActualTypeArguments())
-                    .map(Arg::fromType)
-                    .toList();
-                yield ParameterizedType.of((Class<?>) parameterizedType.getRawType(), args);
-            }
+            case java.lang.reflect.ParameterizedType parameterizedType -> ParameterizedType.of(
+                (Class<?>) parameterizedType.getRawType(),
+                fromTypes(parameterizedType.getActualTypeArguments())
+            );
             case WildcardType wildcardType -> {
                 if (wildcardType.getLowerBounds().length == 0) { // no lower bound
-                    var bound = Arrays.stream(wildcardType.getUpperBounds()).map(Arg::fromType).toList();
-                    yield Wildcard.ofUpper(bound);
+                    yield Wildcard.ofUpper(fromTypes(wildcardType.getUpperBounds()));
                 } else {
-                    var bound = Arrays.stream(wildcardType.getLowerBounds()).map(Arg::fromType).toList();
-                    yield Wildcard.ofLower(bound);
+                    yield Wildcard.ofLower(fromTypes(wildcardType.getLowerBounds()));
                 }
             }
             case GenericArrayType genericArrayType -> ArrayType.of(
@@ -60,10 +54,7 @@ public sealed interface Arg permits ArrayType, ClassType, InnerClassType, Inters
                     yield Arg.fromType(typeVariable.getBounds()[0]);
                 }
                 // intersection
-                var bounds = Arrays.stream(typeVariable.getBounds())
-                    .map(Arg::fromType)
-                    .toList();
-                yield Intersection.of(bounds);
+                yield Intersection.of(fromTypes(typeVariable.getBounds()));
             }
             default -> throw new IllegalArgumentException("Unknown type: " + type + " (" + type.getClass() + ")");
         };
@@ -76,10 +67,18 @@ public sealed interface Arg permits ArrayType, ClassType, InnerClassType, Inters
      * @return the string representation
      */
     static String toString(Arg arg) {
-        Objects.requireNonNull(arg);
+        Utils.requireNonNull(arg);
         var builder = new StringBuilder();
         arg.appendTo(builder);
         return builder.toString();
+    }
+
+    private static Arg[] fromTypes(Type[] types) {
+        var args = new Arg[types.length];
+        for (int i = 0; i < types.length; i++) {
+            args[i] = Arg.fromType(types[i]);
+        }
+        return args;
     }
 
 }
