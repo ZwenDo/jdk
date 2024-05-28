@@ -50,7 +50,7 @@ public interface ArgHandle {
                 Utils.requireNonNull(supertype);
                 var result = cache.get(supertype);
                 if (result == null) {
-                    return null;
+                    return ArgOptional.empty();
                 }
                 try {
                     return ArgOptional.of((Arg) result.invoke(holder));

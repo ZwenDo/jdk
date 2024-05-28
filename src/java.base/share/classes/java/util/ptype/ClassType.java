@@ -21,6 +21,7 @@ public non-sealed interface ClassType extends Arg {
      */
     static ClassType of(Class<?> type) {
         Utils.requireNonNull(type);
+        Arg.dump();
         return new ClassType() {
 
             @Override
@@ -30,19 +31,45 @@ public non-sealed interface ClassType extends Arg {
             }
 
             @Override
-            public boolean isAssignable(Arg actual) {
+            public boolean isAssignable(Arg actual, Variance variance) {
                 Utils.requireNonNull(actual);
-                return switch (actual) {
-                    case ClassType classType -> type.equals(classType.type());
-                    case Intersection intersection -> intersection.bounds()
-                        .anyMatch(this::isAssignable);
-                    case Wildcard wildcard -> wildcard.upperBound()
-                        .anyMatch(this::isAssignable);
-                    case RawType ignored -> false;
-                    case ArrayType ignored -> false;
-                    case InnerClassType ignored -> false;
-                    case ParameterizedType ignored -> false;
-                };
+                Utils.requireNonNull(variance);
+                if (variance == Variance.INVARIANT) { // invariant
+                    return actual instanceof ClassType classType && type.equals(classType.type());
+                }
+
+                if (actual instanceof ClassType classType) {
+                    return compareClass(classType.type(), variance);
+                } else if (actual instanceof Intersection intersection) {
+                    return intersection.bounds().anyMatch(Utils.isAssignableLambda(this, variance));
+                } else if (actual instanceof Wildcard wildcard) {
+                    if (variance == Variance.COVARIANT) {
+                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                    } else if (variance == Variance.CONTRAVARIANT) {
+                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                    }
+                    throw new IllegalArgumentException();
+                } else if (actual instanceof RawType rawType) {
+                    return compareClass(rawType.type(), variance);
+                } else if (actual instanceof ArrayType) {
+                    return false;
+                } else if (actual instanceof InnerClassType innerClassType) {
+                    return isAssignable(innerClassType.innerType(), variance);
+                } else if (actual instanceof ParameterizedType parameterizedType) {
+                    return compareClass(parameterizedType.rawType(), variance);
+                }
+                throw new IllegalArgumentException();
+            }
+
+            private boolean compareClass(Class<?> clazz, Variance variance) {
+                if (variance == Variance.INVARIANT) {
+                    throw new AssertionError("Should not reach here");
+                } else if (variance == Variance.COVARIANT) {
+                    return type.isAssignableFrom(clazz);
+                } else if (variance == Variance.CONTRAVARIANT) {
+                    return clazz.isAssignableFrom(type);
+                }
+                throw new IllegalArgumentException();
             }
 
             @Override

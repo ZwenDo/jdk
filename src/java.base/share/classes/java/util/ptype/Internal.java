@@ -6,8 +6,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.Optional;
-import java.util.WeakHashMap;
 
 final class Internal {
 
@@ -39,7 +37,7 @@ final class Internal {
         }
     };
 
-    private static final WeakHashMap<Object, ArrayType> ARRAY_TYPE_STORAGE = new WeakHashMap<>();
+//    private static final WeakHashMap<Object, ArrayType> ARRAY_TYPE_STORAGE = new WeakHashMap<>();
 
     public static MethodHandles.Lookup lookup() {
         return LOOKUP;
@@ -64,9 +62,10 @@ final class Internal {
         if (!array.getClass().isArray()) {
             throw new IllegalArgumentException("Object " + array + " is not an array");
         }
-        synchronized (ARRAY_TYPE_STORAGE) {
-            return ArgOptional.ofNullable(ARRAY_TYPE_STORAGE.get(array));
-        }
+        return ArgOptional.empty();
+//        synchronized (ARRAY_TYPE_STORAGE) {
+//            return ArgOptional.ofNullable(ARRAY_TYPE_STORAGE.get(array));
+//        }
     }
 
     public static RawOptional outerThis(Object obj) {
@@ -134,14 +133,14 @@ final class Internal {
         if (!array.getClass().isArray()) {
             throw new IllegalArgumentException("Object " + array + " is not an array");
         }
-        synchronized (ARRAY_TYPE_STORAGE) {
-            ARRAY_TYPE_STORAGE.compute(array, (key, old) -> {
-                if (old != null) {
-                    throw new IllegalArgumentException("Array " + key + " already cached");
-                }
-                return arrayType;
-            });
-        }
+//        synchronized (ARRAY_TYPE_STORAGE) {
+//            ARRAY_TYPE_STORAGE.compute(array, (key, old) -> {
+//                if (old != null) {
+//                    throw new IllegalArgumentException("Array " + key + " already cached");
+//                }
+//                return arrayType;
+//            });
+//        }
     }
 
     static {

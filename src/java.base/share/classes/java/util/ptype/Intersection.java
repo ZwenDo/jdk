@@ -31,6 +31,7 @@ public non-sealed interface Intersection extends Arg {
      */
     static Intersection of(ArgList bounds) {
         Utils.requireNonNull(bounds);
+        Arg.dump();
         if (bounds.size() < 2) {
             throw new IllegalArgumentException("bounds.size() < 2");
         }
@@ -38,20 +39,22 @@ public non-sealed interface Intersection extends Arg {
         return new Intersection() {
 
             @Override
-            public void appendTo(StringBuilder builder) {
-                Utils.requireNonNull(builder);
-                bounds.forEachIndexed((index, bound) -> {
-                    bound.appendTo(builder);
-                    if (index < bounds.size() - 1) {
-                        builder.append(" & ");
+            public boolean isAssignable(Arg actual, Variance variance) {
+                Utils.requireNonNull(actual);
+                Utils.requireNonNull(variance);
+                // TODO unsure
+                return bounds.allMatch(new ArgList.ArgPredicate() {
+                    @Override
+                    public boolean test(Arg bound) {
+                        return bound.isAssignable(actual, Variance.COVARIANT);
                     }
                 });
             }
 
             @Override
-            public boolean isAssignable(Arg actual) {
-                Utils.requireNonNull(actual);
-                return bounds.allMatch((bound) -> bound.isAssignable(actual));
+            public void appendTo(StringBuilder builder) {
+                Utils.requireNonNull(builder);
+                bounds.forEachIndexed(Utils.appendListLambda(builder, bounds.size(), " & "));
             }
 
             @Override

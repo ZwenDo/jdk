@@ -1,8 +1,5 @@
 package java.util.ptype;
 
-import java.util.Arrays;
-import java.util.List;
-
 /**
  * Represents a wildcard type.
  */
@@ -65,10 +62,20 @@ public non-sealed interface Wildcard extends Arg {
             }
 
             @Override
-            public boolean isAssignable(Arg actual) {
+            public boolean isAssignable(Arg actual, Variance variance) {
                 Utils.requireNonNull(actual);
-                return upperBound.allMatch((bound) -> bound.isAssignable(actual)) &&
-                       lowerBound.allMatch((bound) -> bound.isAssignable(actual));
+                return upperBound.allMatch(new ArgList.ArgPredicate() {
+                    @Override
+                    public boolean test(Arg bound) {
+                        return bound.isAssignable(actual, Variance.COVARIANT);
+                    }
+                }) &&
+                       lowerBound.allMatch(new ArgList.ArgPredicate() {
+                           @Override
+                           public boolean test(Arg bound) {
+                               return bound.isAssignable(actual, Variance.CONTRAVARIANT);
+                           }
+                       });
             }
 
             @Override
@@ -88,12 +95,7 @@ public non-sealed interface Wildcard extends Arg {
 
             private static void appendBounds(StringBuilder builder, String prefix, ArgList bounds) {
                 builder.append(prefix);
-                bounds.forEachIndexed((index, bound) -> {
-                    bound.appendTo(builder);
-                    if (index < bounds.size() - 1) {
-                        builder.append(" & ");
-                    }
-                });
+                bounds.forEachIndexed(Utils.appendListLambda(builder, bounds.size(), " & "));
             }
 
         };

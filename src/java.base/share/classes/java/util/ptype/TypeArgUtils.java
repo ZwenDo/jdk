@@ -1,5 +1,7 @@
 package java.util.ptype;
 
+import jdk.internal.misc.VM;
+
 import java.util.Objects;
 
 /**
@@ -21,17 +23,16 @@ public final class TypeArgUtils {
         if (indices.length == 0) {
             throw new IllegalArgumentException("indices.length == 0");
         }
-        return switch (concrete) {
-            case RawType ignored -> RawType.of(superType);
-            case ParameterizedType p -> {
-                var args = new Arg[indices.length];
-                for (var arg : indices) {
-                    args[arg] = p.typeArgs().get(arg);
-                }
-                yield ParameterizedType.of(superType, args);
+        if (concrete instanceof RawType) {
+            return RawType.of(superType);
+        } else if (concrete instanceof ParameterizedType p) {
+            var args = new Arg[indices.length];
+            for (var arg : indices) {
+                args[arg] = p.typeArgs().get(arg);
             }
-            default -> throw new AssertionError("Unexpected value: " + concrete);
-        };
+            return ParameterizedType.of(superType, args);
+        }
+        throw new AssertionError("Unexpected value: " + concrete);
     }
 
     /**
@@ -75,6 +76,7 @@ public final class TypeArgUtils {
      */
     public static ArgList getGenericSupertypes(Class<?> type) {
         Utils.requireNonNull(type);
+        if (!VM.isBooted()) return ArgList.of();
         return Internal.staticArgs(type);
     }
 
@@ -88,7 +90,9 @@ public final class TypeArgUtils {
     public static Object addArrayTypeArg(Object array, ArrayType arrayType) {
         Utils.requireNonNull(array);
         Utils.requireNonNull(arrayType);
-        Internal.addArrayTypeArg(array, arrayType);
+        if (VM.isBooted()) {
+            Internal.addArrayTypeArg(array, arrayType);
+        }
         return array;
     }
 
@@ -100,6 +104,7 @@ public final class TypeArgUtils {
      */
     public static ArgOptional arrayType(Object array) {
         Utils.requireNonNull(array);
+        if (!VM.isBooted()) return ArgOptional.empty();
         return Internal.arrayType(array);
     }
 
@@ -121,20 +126,25 @@ public final class TypeArgUtils {
         if (currentIndex == indices.length) { // base case
             return concrete;
         }
-        return switch (concrete) {
-            case RawType ignored -> throw new IllegalArgumentException("RawType has no type args");
-            case InnerClassType ict -> getArgInternal(ict.innerType(), currentIndex, indices);
-            case ArrayType a -> getArgInternal(a.componentType(), currentIndex, indices);
-            case ParameterizedType p -> {
-                var list = p.typeArgs();
-                Objects.checkIndex(indices[currentIndex], list.size());
-                yield getArgInternal(list.get(indices[currentIndex]), currentIndex + 1, indices);
-            }
+        if (concrete instanceof RawType) {
+            throw new IllegalArgumentException("RawType has no type args");
+        } else if (concrete instanceof InnerClassType ict) {
+            return getArgInternal(ict.innerType(), currentIndex, indices);
+        } else if (concrete instanceof ArrayType a) {
+            return getArgInternal(a.componentType(), currentIndex, indices);
+        } else if (concrete instanceof ParameterizedType p) {
+            var list = p.typeArgs();
+            Objects.checkIndex(indices[currentIndex], list.size());
+            return getArgInternal(list.get(indices[currentIndex]), currentIndex + 1, indices);
             // wildcard and intersection are not supported because we are in the context of a concrete type
-            case Wildcard ignored -> throw new UnsupportedOperationException("Wildcard not supported");
-            case Intersection ignored -> throw new UnsupportedOperationException("Intersection not supported");
-            case ClassType ignored -> throw new IllegalArgumentException("ClassType has no type args");
-        };
+        } else if (concrete instanceof Wildcard) {
+            throw new UnsupportedOperationException("Wildcard not supported");
+        } else if (concrete instanceof Intersection) {
+            throw new UnsupportedOperationException("Intersection not supported");
+        } else if (concrete instanceof ClassType) {
+            throw new IllegalArgumentException("ClassType has no type args");
+        }
+        throw new IllegalArgumentException();
     }
 
     private TypeArgUtils() {

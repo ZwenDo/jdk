@@ -19,6 +19,8 @@ public non-sealed interface ArrayType extends Arg {
      * @return the {@link ArrayType}
      */
     static ArrayType of(Arg componentTypeArgs) {
+        Utils.requireNonNull(componentTypeArgs);
+        Arg.dump();
         return new ArrayType() {
 
             @Override
@@ -29,17 +31,25 @@ public non-sealed interface ArrayType extends Arg {
             }
 
             @Override
-            public boolean isAssignable(Arg actual) {
+            public boolean isAssignable(Arg actual, Variance variance) {
                 Utils.requireNonNull(actual);
-                return switch (actual) {
-                    case ArrayType arrayType -> componentTypeArgs.isAssignable(arrayType.componentType());
-                    case ClassType ignored -> false;
-                    case InnerClassType ignored -> false;
-                    case Intersection ignored -> false;
-                    case ParameterizedType ignored -> false;
-                    case RawType ignored -> false;
-                    case Wildcard ignored -> false;
-                };
+                Utils.requireNonNull(variance);
+                if (actual instanceof ArrayType arrayType) {
+                    return componentTypeArgs.isAssignable(arrayType.componentType(), Variance.INVARIANT);
+                } else if (actual instanceof ClassType) {
+                    return false;
+                } else if (actual instanceof InnerClassType) {
+                    return false;
+                } else if (actual instanceof Intersection) {
+                    return false;
+                } else if (actual instanceof ParameterizedType) {
+                    return false;
+                } else if (actual instanceof RawType) {
+                    return false;
+                } else if (actual instanceof Wildcard) {
+                    return false;
+                }
+                throw new IllegalArgumentException();
             }
 
             @Override

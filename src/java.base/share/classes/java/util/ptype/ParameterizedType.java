@@ -23,13 +23,14 @@ public non-sealed interface ParameterizedType extends Arg {
     /**
      * Creates a {@link ParameterizedType} from the given raw type and type arguments.
      *
-     * @param type  the raw type
-     * @param args  the type arguments
+     * @param type the raw type
+     * @param args the type arguments
      * @return the {@link ParameterizedType}
      */
     static ParameterizedType of(Class<?> type, Arg... args) {
         Utils.requireNonNull(type);
         Utils.requireNonNull(args);
+        Arg.dump();
         if (args.length == 0) {
             throw new IllegalArgumentException("args is empty");
         }
@@ -37,50 +38,80 @@ public non-sealed interface ParameterizedType extends Arg {
         return new ParameterizedType() {
 
             @Override
+            public boolean isAssignable(Arg actual, Variance variance) {
+                Utils.requireNonNull(actual);
+                Utils.requireNonNull(variance);
+                if (variance == Variance.INVARIANT) {
+                    // TODO ignore arguments ?
+                    return (actual instanceof RawType rawType && type.equals(rawType.type()))
+                           || (actual instanceof ParameterizedType parameterizedType && type.equals(parameterizedType.rawType())
+                               && compareArguments(parameterizedType));
+                }
+                if (actual instanceof ParameterizedType parameterizedType) {
+                    return compareClass(
+                        parameterizedType.rawType(),
+                        variance
+                    ) && compareArguments(parameterizedType);
+                    // TODO ignore arguments ?
+                } else if (actual instanceof RawType rawType) {
+                    return compareClass(rawType.type(), variance);
+                } else if (actual instanceof Wildcard wildcard) {
+                    if (variance == Variance.COVARIANT) {
+                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                    } else if (variance == Variance.CONTRAVARIANT) {
+                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                    }
+                    throw new IllegalArgumentException();
+                } else if (actual instanceof Intersection intersection) {
+                    return intersection.bounds().anyMatch(Utils.isAssignableLambda(this, variance));
+                } else if (actual instanceof InnerClassType innerClassType) {
+                    return isAssignable(innerClassType.innerType(), variance);
+                } else if (actual instanceof ClassType classType) {
+                    return compareClass(classType.type(), variance)
+                           && Internal.staticArgs(classType.type()).anyMatch(Utils.isAssignableLambda(
+                        this,
+                        Variance.INVARIANT
+                    ));
+                } else if (actual instanceof ArrayType) {
+                    return false;
+                }
+                throw new IllegalArgumentException();
+            }
+
+            private boolean compareArguments(ParameterizedType actual) {
+                if (argsCopy.size() != actual.typeArgs().size()) {
+                    return false;
+                }
+                var expectedIt = argsCopy.iterator();
+                var actualIt = actual.typeArgs().iterator();
+                while (expectedIt.hasNext()) {
+                    var exNext = expectedIt.next();
+                    var acNext = actualIt.next();
+                    if (!exNext.isAssignable(acNext, Variance.INVARIANT)) { // always invariant
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            private boolean compareClass(Class<?> clazz, Variance variance) {
+                if (variance == Variance.INVARIANT) {
+                    throw new AssertionError("Should not reach here");
+                } else if (variance == Variance.COVARIANT) {
+                    return type.isAssignableFrom(clazz);
+                } else if (variance == Variance.CONTRAVARIANT) {
+                    return clazz.isAssignableFrom(type);
+                }
+                throw new IllegalArgumentException();
+            }
+
+            @Override
             public void appendTo(StringBuilder builder) {
                 Utils.requireNonNull(builder);
                 builder.append(rawType().getSimpleName());
                 builder.append("<");
-                typeArgs().forEachIndexed((index, arg) -> {
-                    arg.appendTo(builder);
-                    if (index < argsCopy.size() - 1) {
-                        builder.append(", ");
-                    }
-                });
+                typeArgs().forEachIndexed(Utils.appendListLambda(builder, typeArgs().size(), ", "));
                 builder.append(">");
-            }
-
-            @Override
-            public boolean isAssignable(Arg actual) {
-                Utils.requireNonNull(actual);
-                return switch (actual) {
-                    case ParameterizedType parameterizedType -> {
-                        if ( // return false if the raw types are not assignable or if the number of type args is different
-                            !type.equals(parameterizedType.rawType())
-                            || argsCopy.size() != parameterizedType.typeArgs().size()
-                        ) {
-                            yield false;
-                        }
-
-                        var expectedIt = argsCopy.iterator();
-                        var actualIt = parameterizedType.typeArgs().iterator();
-                        while (expectedIt.hasNext()) {
-                            var exNext = expectedIt.next();
-                            var acNext = actualIt.next();
-                            if (!exNext.isAssignable(acNext)) {
-                                yield false;
-                            }
-                        }
-
-                        yield true;
-                    }
-                    case RawType rawType -> type.equals(rawType.type());
-                    case Wildcard wildcard -> wildcard.upperBound().anyMatch(this::isAssignable);
-                    case Intersection intersection -> intersection.bounds().allMatch(this::isAssignable);
-                    case InnerClassType ignored -> false;
-                    case ClassType ignored -> false;
-                    case ArrayType ignored -> false;
-                };
             }
 
             @Override

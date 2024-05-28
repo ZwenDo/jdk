@@ -2,11 +2,12 @@ package java.util.ptype;
 
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.RandomAccess;
 
 /**
  * Immutable array list of {@link Arg}s.
  */
-public final class ArgList {
+public final class ArgList implements RandomAccess {
 
     private final Arg[] args;
 
@@ -41,13 +42,6 @@ public final class ArgList {
 
     boolean isEmpty() {
         return args.length == 0;
-    }
-
-    void forEach(ArgConsumer consumer) {
-        Utils.requireNonNull(consumer);
-        for (var arg : args) {
-            consumer.accept(arg);
-        }
     }
 
     void forEachIndexed(IntArgBiConsumer consumer) {

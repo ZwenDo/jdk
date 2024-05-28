@@ -6,6 +6,8 @@ public final class ArgOptional {
 
     private final Arg arg;
 
+    private static final ArgOptional EMPTY = new ArgOptional(null);
+
     private ArgOptional(Arg arg) {
         this.arg = arg;
     }
@@ -17,6 +19,10 @@ public final class ArgOptional {
 
     static ArgOptional ofNullable(Arg arg) {
         return new ArgOptional(arg);
+    }
+
+    public static ArgOptional empty() {
+        return EMPTY;
     }
 
     public Arg get() {

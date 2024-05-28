@@ -20,6 +20,7 @@ public interface MethodTypeArgs {
      * @return a new instance of {@code MethodTypeArgs} with the given type arguments
      */
     static MethodTypeArgs of(Arg... args) {
+        Arg.dump();
         if (args.length == 0) {
             throw new IllegalArgumentException("args.length == 0");
         }
@@ -35,12 +36,7 @@ public interface MethodTypeArgs {
             public String toString() {
                 var builder = new StringBuilder();
                 builder.append("<");
-                argsCopy.forEachIndexed((index, arg) -> {
-                    builder.append(arg.toString());
-                    if (index < argsCopy.size() - 1) {
-                        builder.append(", ");
-                    }
-                });
+                argsCopy.forEachIndexed(Utils.appendListLambda(builder, argsCopy.size(), ", "));
                 builder.append(">");
                 return builder.toString();
             }

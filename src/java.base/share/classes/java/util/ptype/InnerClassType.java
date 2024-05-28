@@ -29,6 +29,7 @@ public non-sealed interface InnerClassType extends Arg {
     static InnerClassType of(Arg outerType, Arg innerType) {
         Utils.requireNonNull(outerType);
         Utils.requireNonNull(innerType);
+        Arg.dump();
         return new InnerClassType() {
 
             @Override
@@ -40,18 +41,26 @@ public non-sealed interface InnerClassType extends Arg {
             }
 
             @Override
-            public boolean isAssignable(Arg actual) {
+            public boolean isAssignable(Arg actual, Variance variance) {
                 Utils.requireNonNull(actual);
-                return switch (actual) {
-                    case InnerClassType innerClassType -> outerType.isAssignable(innerClassType.outerType()) &&
-                                                          innerType.isAssignable(innerClassType.innerType());
-                    case ClassType ignored -> false;
-                    case Intersection ignored -> false;
-                    case ParameterizedType ignored -> false;
-                    case RawType ignored -> false;
-                    case Wildcard ignored -> false;
-                    case ArrayType ignored -> false;
-                };
+                Utils.requireNonNull(variance);
+                if (actual instanceof InnerClassType innerClassType) {
+                    return outerType.isAssignable(innerClassType.outerType(), variance) &&
+                           innerType.isAssignable(innerClassType.innerType(), variance);
+                } else if (actual instanceof ClassType) {
+                    return false;
+                } else if (actual instanceof Intersection) {
+                    return false;
+                } else if (actual instanceof ParameterizedType) {
+                    return false;
+                } else if (actual instanceof RawType) {
+                    return false;
+                } else if (actual instanceof Wildcard) {
+                    return false;
+                } else if (actual instanceof ArrayType) {
+                    return false;
+                }
+                throw new IllegalArgumentException();
             }
 
             @Override
