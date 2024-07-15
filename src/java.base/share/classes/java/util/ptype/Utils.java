@@ -8,7 +8,7 @@ final class Utils {
         }
     }
 
-    static ArgList.ArgPredicate isAssignableLambda(Arg expected, Arg.Variance variance) {
+    static ArgList.ArgPredicate isAssignableLambdaExpected(Arg expected, Arg.Variance variance) {
         requireNonNull(expected);
         requireNonNull(variance);
         return new ArgList.ArgPredicate() {
@@ -16,6 +16,18 @@ final class Utils {
             public boolean test(Arg arg) {
                 requireNonNull(arg);
                 return expected.isAssignable(arg, variance);
+            }
+        };
+    }
+
+    static ArgList.ArgPredicate isAssignableLambdaActual(Arg actual, Arg.Variance variance) {
+        requireNonNull(actual);
+        requireNonNull(variance);
+        return new ArgList.ArgPredicate() {
+            @Override
+            public boolean test(Arg arg) {
+                requireNonNull(arg);
+                return arg.isAssignable(actual, variance);
             }
         };
     }

@@ -25,12 +25,10 @@
 
 package com.sun.tools.javac.code;
 
-import java.lang.annotation.Annotation;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -293,12 +291,16 @@ public abstract class Type extends AnnoConstruct implements TypeMirror, PoolCons
             if (argtypes1 == argtypes &&
                 restype1 == restype &&
                 thrown1 == thrown) return t;
-            else return new MethodType(argtypes1, restype1, thrown1, t.tsym) {
-                @Override
-                protected boolean needsStripping() {
-                    return true;
-                }
-            };
+            else {
+                var result = new MethodType(argtypes1, restype1, thrown1, t.tsym) {
+                    @Override
+                    protected boolean needsStripping() {
+                        return true;
+                    }
+                };
+                result.inferrenceMapping = t.inferrenceMapping;
+                return result;
+            }
         }
 
         @Override
@@ -1473,7 +1475,7 @@ public abstract class Type extends AnnoConstruct implements TypeMirror, PoolCons
         public List<Type> argtypes;
         public Type restype;
         public List<Type> thrown;
-        public List<Type> inferredTypes = List.nil();
+        public List<Pair<Type, Type>> inferrenceMapping = List.nil();
 
         /** The type annotations on the method receiver.
          */

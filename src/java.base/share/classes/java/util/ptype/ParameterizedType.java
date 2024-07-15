@@ -30,7 +30,6 @@ public non-sealed interface ParameterizedType extends Arg {
     static ParameterizedType of(Class<?> type, Arg... args) {
         Utils.requireNonNull(type);
         Utils.requireNonNull(args);
-        Arg.dump();
         if (args.length == 0) {
             throw new IllegalArgumentException("args is empty");
         }
@@ -57,18 +56,18 @@ public non-sealed interface ParameterizedType extends Arg {
                     return compareClass(rawType.type(), variance);
                 } else if (actual instanceof Wildcard wildcard) {
                     if (variance == Variance.COVARIANT) {
-                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                     } else if (variance == Variance.CONTRAVARIANT) {
-                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                     }
                     throw new IllegalArgumentException();
                 } else if (actual instanceof Intersection intersection) {
-                    return intersection.bounds().anyMatch(Utils.isAssignableLambda(this, variance));
+                    return intersection.bounds().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                 } else if (actual instanceof InnerClassType innerClassType) {
                     return isAssignable(innerClassType.innerType(), variance);
                 } else if (actual instanceof ClassType classType) {
                     return compareClass(classType.type(), variance)
-                           && Internal.staticArgs(classType.type()).anyMatch(Utils.isAssignableLambda(
+                           && Internal.staticArgs(classType.type()).anyMatch(Utils.isAssignableLambdaExpected(
                         this,
                         Variance.INVARIANT
                     ));
@@ -130,6 +129,20 @@ public non-sealed interface ParameterizedType extends Arg {
             }
 
         };
+    }
+
+    /**
+     * Creates a {@link ParameterizedType} from the name of the type and type arguments. This method is used in cases
+     * where the class is not accessible through a class literal due to visibility constraints.
+     *
+     * @param name the name of the type
+     * @param args the type arguments
+     * @return the {@link ParameterizedType}
+     */
+    static ParameterizedType of(String name, Arg... args) {
+        Utils.requireNonNull(name);
+        Utils.requireNonNull(args);
+        return of(Internal.findClass(name), args);
     }
 
 }

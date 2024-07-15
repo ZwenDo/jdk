@@ -100,6 +100,8 @@ public class LambdaToMethod extends TreeTranslator {
     private TransTypes transTypes;
     private final TransParameterizedTypes transParameterizedTypes;
     private Env<AttrContext> attrEnv;
+    private boolean shouldProcessCurrentClass;
+    private ClassSymbol currentClass;
 
     /** the analyzer scanner */
     private LambdaAnalyzerPreprocessor analyzer;
@@ -300,6 +302,10 @@ public class LambdaToMethod extends TreeTranslator {
      */
     @Override
     public void visitClassDef(JCClassDecl tree) {
+        var oldProcessingState = shouldProcessCurrentClass;
+        var oldClass = currentClass;
+        shouldProcessCurrentClass = transParameterizedTypes.shouldProcess(tree.sym);
+        currentClass = tree.sym;
         if (tree.sym.owner.kind == PCK) {
             //analyze class
             tree = analyzer.analyzeAndPreprocessClass(tree);
@@ -326,6 +332,8 @@ public class LambdaToMethod extends TreeTranslator {
             result = tree;
         } finally {
             kInfo = prevKlassInfo;
+            shouldProcessCurrentClass = oldProcessingState;
+            currentClass = oldClass;
         }
     }
 
@@ -386,6 +394,14 @@ public class LambdaToMethod extends TreeTranslator {
         lambdaDecl.sym = sym;
         lambdaDecl.type = lambdaType;
 
+        var argFieldInProxy = tree.target.tsym.hasNewGenerics() && tree.target.tsym.type.isParameterized() && shouldProcessCurrentClass;
+        if (argFieldInProxy) {
+            var extraParam = new VarSymbol(0, names.fromString("0$argCapture"), syms.argBaseType, sym);
+            sym.params = sym.params.append(extraParam);
+            sym.type = new MethodType(sym.type.getParameterTypes().append(syms.argBaseType), sym.type.getReturnType(), sym.type.getThrownTypes(), sym.type.tsym);
+            lambdaDecl.params = lambdaDecl.params.append(make.VarDef(extraParam, null));
+        }
+
         //translate lambda body
         //As the lambda body is translated, all references to lambda locals,
         //captured variables, enclosing members are adjusted accordingly
@@ -429,21 +445,6 @@ public class LambdaToMethod extends TreeTranslator {
                     localContext.owner.enclClass()));
         }
 
-        if (
-            tree.target.tsym.hasNewGenerics()
-            && tree.target.isParameterized()
-            && syms.lambdaMetafactory.tsym.hasNewGenerics()
-        ) {
-            syntheticInits.append(
-                transParameterizedTypes.generateArgs(
-                    tree.target,
-                    attrEnv,
-                    make,
-                    tree.scopeTypeParameters
-                )
-            );
-        }
-
         //add captured locals
         for (Symbol fv : localContext.getSymbolMap(CAPTURED_VAR).keySet()) {
             if (fv != localContext.self) {
@@ -455,6 +456,19 @@ public class LambdaToMethod extends TreeTranslator {
         for (Symbol fv : localContext.getSymbolMap(CAPTURED_OUTER_THIS).keySet()) {
             JCExpression captured_local = make.QualThis(fv.type);
             syntheticInits.append(captured_local);
+        }
+
+        if (argFieldInProxy) {
+            syntheticInits.append(
+                transParameterizedTypes.generateArgs(
+                    currentClass,
+                    tree.target,
+                    attrEnv,
+                    make,
+                    tree.scopeTypeParameters,
+                    tree.typeMappingScope
+                )
+            );
         }
 
         //then, determine the arguments to the indy call
@@ -540,12 +554,8 @@ public class LambdaToMethod extends TreeTranslator {
         if (init != null) {
             syntheticInits.append(init);
         }
-        if (
-            tree.target.tsym.hasNewGenerics()
-            && tree.target.isParameterized()
-            && syms.lambdaMetafactory.tsym.hasNewGenerics()
-        ) {
-            syntheticInits.append(transParameterizedTypes.generateArgs(tree.target, attrEnv, make, tree.scopeTypeParameters));
+        if (tree.target.tsym.hasNewGenerics() && tree.target.isParameterized() && shouldProcessCurrentClass) {
+            syntheticInits.append(transParameterizedTypes.generateArgs(currentClass, tree.target, attrEnv, make, tree.scopeTypeParameters, tree.typeMappingScope));
         }
         List<JCExpression> indy_args = translate(syntheticInits.toList(), localContext.prev);
 
@@ -927,6 +937,7 @@ public class LambdaToMethod extends TreeTranslator {
         private final Symbol owner;
         private final ListBuffer<JCExpression> args = new ListBuffer<>();
         private final ListBuffer<JCVariableDecl> params = new ListBuffer<>();
+        private final Types.ArgPosition argPositions;
 
         private JCExpression receiverExpression = null;
 
@@ -934,6 +945,7 @@ public class LambdaToMethod extends TreeTranslator {
             this.tree = tree;
             this.localContext = localContext;
             this.owner = owner;
+            this.argPositions = types.typeArgPositions(tree.sym);
         }
 
         JCLambda lambda() {
@@ -944,6 +956,30 @@ public class LambdaToMethod extends TreeTranslator {
                 //body generation - this can be either a method call or a
                 //new instance creation expression, depending on the member reference kind
                 VarSymbol rcvr = addParametersReturnReceiver();
+                if (shouldProcessCurrentClass && argPositions.hasArg()) {
+                    var descriptorType = types.findDescriptorType(tree.target);
+                    var arg = transParameterizedTypes.generateArgs(
+                        currentClass,
+                        descriptorType.asMethodType().restype,
+                        attrEnv,
+                        make,
+                        tree.scopeTypeParameters,
+                        tree.typeMappingScope
+                    );
+                    args.prepend(arg);
+                }
+                if (shouldProcessCurrentClass && argPositions.hasMethodTypeArg()) {
+                    var descriptorType = types.findDescriptorType(tree.target);
+                    var arg = transParameterizedTypes.basicMethodArgConstruction(
+                        tree.sym,
+                        descriptorType.asMethodType().inferrenceMapping,
+                        attrEnv,
+                        make,
+                        tree.scopeTypeParameters,
+                        tree.typeMappingScope
+                    );
+                    args.prepend(arg);
+                }
                 JCExpression expr = (tree.getMode() == ReferenceMode.INVOKE)
                         ? expressionInvoke(rcvr)
                         : expressionNew();
@@ -951,6 +987,7 @@ public class LambdaToMethod extends TreeTranslator {
                 JCLambda slam = make.Lambda(params.toList(), expr);
                 slam.target = tree.target;
                 slam.scopeTypeParameters = tree.scopeTypeParameters;
+                slam.typeMappingScope = tree.typeMappingScope;
                 slam.type = tree.type;
                 slam.pos = tree.pos;
                 return slam;
@@ -996,6 +1033,14 @@ public class LambdaToMethod extends TreeTranslator {
 
             // Failsafe -- assure match-up
             boolean checkForIntersection = tree.varargsElement != null || implSize == descPTypes.size();
+
+            // we must remove the type arguments from the implementation method, as they are created statically
+            if (shouldProcessCurrentClass && argPositions.hasMethodTypeArg()) {
+                implPTypes = implPTypes.tail;
+            }
+            if (shouldProcessCurrentClass && argPositions.hasArg()) {
+                implPTypes = implPTypes.tail;
+            }
 
             // Use parameter types of the implementation method unless the unerased
             // SAM parameter type is an intersection type, in that case use the
@@ -2375,6 +2420,7 @@ public class LambdaToMethod extends TreeTranslator {
                         (!nestmateLambdas && isPrivateInOtherClass()) ||
                         isProtectedInSuperClassOfEnclosingClassInOtherPackage(tree.sym, owner) ||
                         !receiverAccessible() ||
+                       (tree.target.tsym.hasNewGenerics() && tree.target.tsym.type.isParameterized() && shouldProcessCurrentClass) ||
                         (tree.getMode() == ReferenceMode.NEW &&
                           tree.kind != ReferenceKind.ARRAY_CTOR &&
                           (tree.sym.owner.isDirectlyOrIndirectlyLocal() || tree.sym.owner.isInner()));

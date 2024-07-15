@@ -27,6 +27,8 @@ package java.lang.invoke;
 
 import jdk.internal.misc.CDS;
 import jdk.internal.org.objectweb.asm.*;
+import jdk.internal.org.objectweb.asm.util.Textifier;
+import jdk.internal.org.objectweb.asm.util.TraceClassVisitor;
 import jdk.internal.util.ClassFileDumper;
 import sun.invoke.util.BytecodeDescriptor;
 import sun.invoke.util.VerifyAccess;
@@ -34,7 +36,9 @@ import sun.security.action.GetBooleanAction;
 
 import java.io.Serializable;
 import java.lang.constant.ConstantDescs;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.ptype.TypeArgUtils;
@@ -190,15 +194,13 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
         if (parameterCount > 0) {
             argNames = new String[parameterCount];
             argDescs = new String[parameterCount];
-            int start = 0;
-            if (isFromParameterizedInterface) {
-                argNames[0] = TypeArgUtils.typeArgsFieldName(targetClass);
-                argDescs[0] = BytecodeDescriptor.unparse(factoryType.parameterType(0));
-                start = 1;
-            }
-            for (int i = start; i < parameterCount; i++) {
+            for (int i = 0; i < parameterCount; i++) {
                 argNames[i] = "arg$" + (i + 1);
                 argDescs[i] = BytecodeDescriptor.unparse(factoryType.parameterType(i));
+            }
+            if (isFromParameterizedInterface) {
+                argNames[argNames.length - 1] = TypeArgUtils.typeArgsFieldName(interfaceClass);
+                argDescs[argNames.length - 1] = BytecodeDescriptor.unparse(factoryType.parameterType(argNames.length - 1));
             }
         } else {
             argNames = argDescs = EMPTY_STRING_ARRAY;
@@ -239,7 +241,7 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
         } else {
             try {
                 MethodHandle mh = caller.findConstructor(innerClass, constructorType);
-                if (!isFromParameterizedInterface && factoryType.parameterCount() == 0) {
+                if (factoryType.parameterCount() == 0) {
                     // In the case of a non-capturing lambda, we optimize linkage by pre-computing a single instance
                     Object inst = mh.asType(methodType(Object.class)).invokeExact();
                     return new ConstantCallSite(MethodHandles.constant(interfaceClass, inst));
@@ -366,6 +368,7 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
         // Define the generated class in this VM.
 
         final byte[] classBytes = cw.toByteArray();
+//        System.out.println(Arrays.toString(classBytes));
         try {
             // this class is linked at the indy callsite; so define a hidden nestmate
             var classdata = useImplMethodHandle? implementation : null;
@@ -519,12 +522,18 @@ import static jdk.internal.org.objectweb.asm.Opcodes.*;
             if (useImplMethodHandle) {
                 visitLdcInsn(implMethodCondy);
             }
-            for (int i = 0; i < argNames.length; i++) {
+            var captureLoadingEnd = isFromParameterizedInterface ? argNames.length - 1 : argNames.length;
+            for (int i = 0; i < captureLoadingEnd; i++) {
                 visitVarInsn(ALOAD, 0);
                 visitFieldInsn(GETFIELD, lambdaClassName, argNames[i], argDescs[i]);
             }
 
             convertArgumentTypes(methodType);
+
+            if (isFromParameterizedInterface) {
+                visitVarInsn(ALOAD, 0);
+                visitFieldInsn(GETFIELD, lambdaClassName, argNames[argNames.length - 1], argDescs[argNames.length - 1]);
+            }
 
             if (useImplMethodHandle) {
                 MethodType mtype = implInfo.getMethodType();

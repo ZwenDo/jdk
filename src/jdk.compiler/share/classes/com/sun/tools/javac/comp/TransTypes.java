@@ -241,7 +241,8 @@ public class TransTypes extends TreeTranslator {
 
         // Create a bridge method symbol and a bridge definition without a body.
         Type bridgeType = meth.erasure(types).asMethodType();
-        bridgeType = transParameterizedTypes.copyTypeAndInsertTypeArgIfNeeded(meth, bridgeType);
+        var positions = types.typeArgPositions(meth);
+        bridgeType = transParameterizedTypes.copyTypeAndInsertTypeArgIfNeeded(bridgeType, positions);
         long flags = impl.flags() & AccessFlags | SYNTHETIC | BRIDGE | NEW_GENERICS |
                 (origin.isInterface() ? DEFAULT : 0);
         MethodSymbol bridge = new MethodSymbol(flags,
@@ -251,7 +252,8 @@ public class TransTypes extends TreeTranslator {
         /* once JDK-6996415 is solved it should be checked if this approach can
          * be applied to method addOverrideBridgesIfNeeded
          */
-        bridge.params = createBridgeParams(impl, bridge, bridgeType);
+        var prependMethodTypeArgs = positions.hasMethodTypeArg() && !impl.owner.hasNewGenerics();
+        bridge.params = createBridgeParams(impl, bridge, bridgeType, prependMethodTypeArgs);
         bridge.setAttributes(impl);
 
         JCMethodDecl md = make.MethodDef(bridge, null);
@@ -271,7 +273,7 @@ public class TransTypes extends TreeTranslator {
             make.Apply(
                        null,
                        make.Select(receiver, impl).setType(calltype),
-                       translateArgs(make.Idents(md.params), implTypeErasure.getParameterTypes(), null))
+                       translateArgs(prependMethodTypeArgs ? make.Idents(md.params).tail : make.Idents(md.params), implTypeErasure.getParameterTypes(), null))
             .setType(calltype);
         JCStatement stat = (implTypeErasure.getReturnType().hasTag(VOID))
             ? make.Exec(call)
@@ -286,8 +288,18 @@ public class TransTypes extends TreeTranslator {
     }
 
     private List<VarSymbol> createBridgeParams(MethodSymbol impl, MethodSymbol bridge,
-            Type bridgeType) {
+            Type bridgeType, boolean prependMethodTypeArgs) {
         List<VarSymbol> bridgeParams = null;
+        if (prependMethodTypeArgs) {
+            impl.params = impl.params.prepend(
+                new VarSymbol(
+                    PARAMETER,
+                    transParameterizedTypes.computeArgParamName(impl, syms.methodTypeArgs),
+                    syms.methodTypeArgs,
+                    impl
+                )
+            );
+        }
         if (impl.params != null) {
             bridgeParams = List.nil();
             List<VarSymbol> implParams = impl.params;

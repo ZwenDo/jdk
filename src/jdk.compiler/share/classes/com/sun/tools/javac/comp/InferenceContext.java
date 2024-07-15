@@ -27,6 +27,7 @@ package com.sun.tools.javac.comp;
 
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -51,6 +52,7 @@ import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.util.Assert;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
+import com.sun.tools.javac.util.Pair;
 import com.sun.tools.javac.util.Warner;
 
 /**
@@ -229,7 +231,23 @@ public class InferenceContext {
      * fully instantiated, it will still be available in the resulting type.
      */
     Type asInstType(Type t) {
-        return types.subst(t, inferencevars, instTypes());
+        var res = types.subst(t, inferencevars, instTypes());
+        setInferenceMapping(res);
+        return res;
+    }
+
+    private void setInferenceMapping(Type result) {
+        if (!(result instanceof Type.MethodType methodType)) return;
+        var mapping = new ListBuffer<Pair<Type, Type>>();
+        var inf = inferencevars.iterator();
+        var undet = undetvars.iterator();
+        mapping.appendList(methodType.inferrenceMapping);
+        while (inf.hasNext()) {
+            var uv = (UndetVar) undet.next();
+            var iv = inf.next();
+            mapping.prepend(Pair.of(iv, uv.getInst() != null ? uv.getInst() : uv.qtype));
+        }
+        methodType.inferrenceMapping = mapping.toList();
     }
 
     List<Type> asInstTypes(List<Type> ts) {
@@ -333,6 +351,7 @@ public class InferenceContext {
     }
 
     InferenceContext min(List<Type> roots, boolean shouldSolve, Warner warn) {
+        if (true) return this; // FIXME - workaround to avoid removing inference variables
         if (roots.length() == inferencevars.length()) {
             return this;
         }

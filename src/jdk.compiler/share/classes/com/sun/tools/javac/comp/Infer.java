@@ -69,6 +69,7 @@ import java.util.function.Predicate;
 
 import static com.sun.tools.javac.code.TypeTag.*;
 import java.util.Comparator;
+import java.util.stream.Stream;
 
 /** Helper class for type parameter inference, used by the attribution phase.
  *
@@ -215,13 +216,14 @@ public class Infer {
                 log.note(env.tree.pos, Notes.DeferredMethodInst(msym, mt, resultInfo.pt));
             }
 
-            var buffer = new ListBuffer<Type>();
-            inferenceContext.undetvars.forEach(u -> {
-                var undetVar = (UndetVar) u;
-                buffer.append(undetVar.getInst());
-            });
-            mt.inferredTypes = buffer.toList();
-
+            var mapping = new ListBuffer<Pair<Type, Type>>();
+            var inf = inferenceContext.inferencevars.iterator();
+            var undet = inferenceContext.undetvars.iterator();
+            while (inf.hasNext()) {
+                var uv = (UndetVar) undet.next();
+                mapping.prepend(Pair.of(inf.next(), uv.getInst() != null ? uv.getInst() : uv.qtype));
+            }
+            mt.inferrenceMapping = mapping.toList();
             // return instantiated version of method type
             return mt;
         } finally {
@@ -997,7 +999,8 @@ public class Infer {
 
         @Override
         void apply(InferenceContext inferenceContext, Warner warn) {
-            List<Type> boundList = uv.getBounds(InferenceBound.UPPER).stream()
+            var stream = uv.getBounds(InferenceBound.UPPER).stream();
+            List<Type> boundList = stream
                     .collect(types.closureCollector(true, types::isSameType));
             for (Type b2 : boundList) {
                 if (t == b2) continue;

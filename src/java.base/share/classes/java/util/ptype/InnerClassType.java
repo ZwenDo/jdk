@@ -29,7 +29,6 @@ public non-sealed interface InnerClassType extends Arg {
     static InnerClassType of(Arg outerType, Arg innerType) {
         Utils.requireNonNull(outerType);
         Utils.requireNonNull(innerType);
-        Arg.dump();
         return new InnerClassType() {
 
             @Override

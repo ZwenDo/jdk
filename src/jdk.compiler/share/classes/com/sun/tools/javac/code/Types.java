@@ -26,7 +26,6 @@
 package com.sun.tools.javac.code;
 
 import java.lang.ref.SoftReference;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Locale;
@@ -1534,6 +1533,46 @@ public class Types {
             return argOk && methodTypeArgOk ? this : NONE;
         }
 
+        public ArgPosition doNotModifyIfOverriddesNotModifiedMethod(Symbol.MethodSymbol methodSymbol, Types types) {
+            Objects.requireNonNull(methodSymbol);
+            Objects.requireNonNull(types);
+            if (this != PARAM_METHOD || methodSymbol.isStatic()) {
+                return this;
+            }
+            var res = doNotModifyIfOverriddesNotModifiedMethod((ClassSymbol) methodSymbol.owner, methodSymbol, types);
+            return res != null ? res : this;
+        }
+
+        private ArgPosition doNotModifyIfOverriddesNotModifiedMethod(Symbol.ClassSymbol currentClass, Symbol.MethodSymbol msym, Types types) {
+            var superArgPos = overridesAMethodFromSuper(currentClass.getSuperclass(), msym, types);
+
+            if (superArgPos != null) {
+                return superArgPos;
+            }
+
+            for (var superInterfaces : currentClass.getInterfaces()) {
+                var interfaceArgPos = overridesAMethodFromSuper(superInterfaces, msym, types);
+                if (interfaceArgPos != null) {
+                    return interfaceArgPos;
+                }
+            }
+
+            return null;
+        }
+
+        private ArgPosition overridesAMethodFromSuper(Type t, Symbol.MethodSymbol msym, Types types) {
+            var tsym = (Symbol.ClassSymbol) t.tsym;
+            if (t.getTag() == TypeTag.NONE || tsym.hasNewGenerics()) return null;
+
+            for (Symbol sym : tsym.members().getSymbolsByName(msym.name)) {
+                if (msym.overrides(sym, tsym, types, true)) {
+                    return NONE;
+                }
+            }
+
+            return doNotModifyIfOverriddesNotModifiedMethod(tsym, msym, types);
+        }
+
         @Override
         public String toString() {
             return "{ arg: " + argPosition + ", methodTypeArg: " + methodTypeArgPosition + " }";
@@ -2512,7 +2551,7 @@ public class Types {
             methodType.tsym
         );
         if (msym.type instanceof ForAll forAll) {
-            return new ForAll( forAll.tvars, qtype);
+            return new ForAll(forAll.tvars, qtype);
         }
         return qtype;
     }
@@ -2555,6 +2594,13 @@ public class Types {
                                 // then base is a raw type
                                 return erasure(symType);
                             } else {
+                                if (symType instanceof Type.MethodType mtype) {
+                                    var buffer = new ListBuffer<Pair<Type, Type>>();
+                                    for (var i = 0; i < ownerParams.size(); i++) {
+                                        buffer.append(new Pair<>(ownerParams.get(i), baseParams.get(i)));
+                                    }
+                                    mtype.inferrenceMapping = buffer.toList();
+                                }
                                 return subst(symType, ownerParams, baseParams);
                             }
                         }
@@ -3374,37 +3420,6 @@ public class Types {
                             break;
                         }
                     }
-//                    if (sym.kind == MTH &&
-//                        (sym.flags() & (ABSTRACT|DEFAULT|PRIVATE)) == ABSTRACT) {
-//                        MethodSymbol absmeth = (MethodSymbol)sym;
-//                        MethodSymbol lookupAbstract = absmeth;
-//                        if (absmeth.type instanceof ForAll forAll) {
-//                            var params = forAll.getParameterTypes();
-//                            if (!params.isEmpty() && isSameType(syms.methodTypeArgs, params.getFirst())) {
-//                                lookupAbstract = absmeth.clone(absmeth.owner);
-//                                try {
-//
-//
-//                                lookupAbstract.params = lookupAbstract.params.tail;
-//                                } catch (NullPointerException e) {
-//                                    logs.printRawLines("Flop " + sym + " // " + impl + " // " + c);
-//                                    throw e;
-//                                }
-//                            }
-//                        }
-//                        MethodSymbol implmeth = absmeth.implementation(impl, this, true);
-//                        if (implmeth == null || implmeth == absmeth) {
-//                            //look for default implementations
-//                            MethodSymbol prov = interfaceCandidates(impl.type, absmeth).head;
-//                            if (prov != null && prov.overrides(absmeth, impl, this, true)) {
-//                                implmeth = prov;
-//                            }
-//                        }
-//                        if (implmeth == null || implmeth == absmeth) {
-//                            undef = absmeth;
-//                            break;
-//                        }
-//                    }
                 }
                 if (undef == null) {
                     Type st = supertype(c.type);

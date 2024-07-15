@@ -1,21 +1,43 @@
 package java.util.ptype;
 
 import jdk.internal.misc.VM;
+import jdk.internal.org.objectweb.asm.Handle;
+import sun.reflect.generics.tree.SimpleClassTypeSignature;
+
+import java.lang.invoke.CallSite;
+import java.lang.invoke.LambdaMetafactory;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MutableCallSite;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
+
+import static java.lang.invoke.MethodType.methodType;
 
 /**
  * Utility methods for working with {@link Arg}s.
  */
 public final class TypeOperations {
 
+    private static final StringHashSet REPORTED_CAST_LOCATIONS = new StringHashSet();
+
+    private static final class LockHolder {
+        private static final ReentrantLock LOCK = new ReentrantLock();
+    }
+
     /**
      * Performs a cast to the given type. This cast ensures that parameterized types are cast correctly.
      *
      * @param obj      the object to cast
      * @param expected the expected type
+     * @param location the location at which the cast has been performed
      * @return the cast object
      */
-    public static Object checkCast(Object obj, Arg expected) {
+    public static Object checkCast(Object obj, Arg expected, String location) {
         Utils.requireNonNull(expected);
+        Utils.requireNonNull(location);
         if (!VM.isBooted()) return obj;
 
         if (obj == null) {
@@ -23,7 +45,14 @@ public final class TypeOperations {
         }
 
         if (!isInstance(obj, expected)) {
-            System.err.println((message(obj, expected)));
+            try {
+                LockHolder.LOCK.lock();
+                if (REPORTED_CAST_LOCATIONS.add(location)) {
+                    System.out.println(message(obj, expected, location));
+                }
+            } finally {
+                LockHolder.LOCK.unlock();
+            }
         }
 
         return obj;
@@ -73,8 +102,15 @@ public final class TypeOperations {
             // var cast = (? extends String) obj;
             // var cast = (? super String) obj;
             // var cast = (?) obj;    equivalent to (? extends Object)
-        } else if (expected instanceof Wildcard) {
-            throw new AssertionError("Wilcard cast should not be possible");
+        } else if (expected instanceof Wildcard wildcard) {
+            var objClass = obj.getClass();
+            var opt = Internal.argHandle(objClass).arg(obj, objClass);
+            if (opt.isEmpty()) {
+                return true;
+            }
+            var actualArg = opt.get();
+            return wildcard.upperBound().allMatch(Utils.isAssignableLambdaActual(actualArg, Arg.Variance.COVARIANT)) &&
+                wildcard.lowerBound().allMatch(Utils.isAssignableLambdaActual(actualArg, Arg.Variance.CONTRAVARIANT));
         }
         throw new IllegalArgumentException();
     }
@@ -88,12 +124,16 @@ public final class TypeOperations {
         return expected.isAssignable(opt.get(), Arg.Variance.COVARIANT);
     }
 
-    private static String message(Object obj, Arg expected) {
+    private static String message(Object obj, Arg expected, String location) {
         var objClass = obj.getClass();
+        if (objClass.isAnonymousClass()) {
+            var interfaces = objClass.getInterfaces();
+            objClass = interfaces.length > 0 ? interfaces[0] : objClass.getSuperclass();
+        }
 
-        var builder = new StringBuilder("Cannot cast ")
-            .append(obj)
-            .append(" (");
+        var actualLocation = location.substring(location.indexOf('!') + 1);
+        var builder = new StringBuilder(actualLocation)
+            .append(": ");
 
         var arg = Internal.argHandle(objClass)
             .arg(obj, objClass);
@@ -103,7 +143,7 @@ public final class TypeOperations {
             builder.append(objClass.getName());
         }
 
-        builder.append(") to ");
+        builder.append(" to ");
         expected.appendTo(builder);
         return builder.toString();
     }

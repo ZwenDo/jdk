@@ -88,6 +88,20 @@ public final class ArgList implements RandomAccess {
         };
     }
 
+    @Override
+    public String toString() {
+        var builder = new StringBuilder();
+        builder.append('[');
+        for (var i = 0; i < args.length; i++) {
+            args[i].appendTo(builder);
+            if (i != args.length - 1) {
+                builder.append(", ");
+            }
+        }
+        builder.append(']');
+        return builder.toString();
+    }
+
     interface ArgIterator {
 
         boolean hasNext();

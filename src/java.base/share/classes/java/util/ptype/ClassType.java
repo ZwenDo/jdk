@@ -21,7 +21,6 @@ public non-sealed interface ClassType extends Arg {
      */
     static ClassType of(Class<?> type) {
         Utils.requireNonNull(type);
-        Arg.dump();
         return new ClassType() {
 
             @Override
@@ -41,12 +40,12 @@ public non-sealed interface ClassType extends Arg {
                 if (actual instanceof ClassType classType) {
                     return compareClass(classType.type(), variance);
                 } else if (actual instanceof Intersection intersection) {
-                    return intersection.bounds().anyMatch(Utils.isAssignableLambda(this, variance));
+                    return intersection.bounds().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                 } else if (actual instanceof Wildcard wildcard) {
                     if (variance == Variance.COVARIANT) {
-                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                     } else if (variance == Variance.CONTRAVARIANT) {
-                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                     }
                     throw new IllegalArgumentException();
                 } else if (actual instanceof RawType rawType) {
@@ -83,6 +82,18 @@ public non-sealed interface ClassType extends Arg {
             }
 
         };
+    }
+
+    /**
+     * Creates a {@link ClassType} from the given class name. This method is used in cases where the class is not
+     * accessible through the class literal syntax due to visibility constraints.
+     *
+     * @param className the name of the class
+     * @return the {@link ClassType}
+     */
+    static ClassType of(String className) {
+        Utils.requireNonNull(className);
+        return of(Internal.findClass(className));
     }
 
 }

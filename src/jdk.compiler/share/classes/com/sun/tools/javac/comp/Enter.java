@@ -104,6 +104,7 @@ public class Enter extends JCTree.Visitor {
     TypeEnvs typeEnvs;
     Modules modules;
     JCDiagnostic.Factory diags;
+    private final TransParameterizedTypes transParameterizedTypes;
 
     private final Todo todo;
 
@@ -129,6 +130,7 @@ public class Enter extends JCTree.Visitor {
         names = Names.instance(context);
         modules = Modules.instance(context);
         diags = JCDiagnostic.Factory.instance(context);
+        transParameterizedTypes = TransParameterizedTypes.instance(context);
 
         predefClassDef = make.ClassDef(
             make.Modifiers(PUBLIC),
@@ -500,10 +502,7 @@ public class Enter extends JCTree.Visitor {
         typeEnvs.put(c, localEnv);
 
         // 0 in case the package is java.util.ptype to avoid any infinite loop during casts
-        var newGenericsFlag = (
-            names.java_util_ptype.contentEquals(c.packge().getQualifiedName())
-            || c.packge().getQualifiedName().startsWith(names.java_lang)
-        ) ? 0 : NEW_GENERICS;
+        var newGenericsFlag = transParameterizedTypes.shouldProcess(c) ? NEW_GENERICS : 0;
         // Fill out class fields.
         c.completer = Completer.NULL_COMPLETER; // do not allow the initial completer linger on.
         c.flags_field = chk.checkFlags(tree.pos(), tree.mods.flags, c, tree) | FROM_SOURCE | newGenericsFlag;

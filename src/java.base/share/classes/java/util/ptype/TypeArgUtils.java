@@ -2,7 +2,7 @@ package java.util.ptype;
 
 import jdk.internal.misc.VM;
 
-import java.util.Objects;
+import java.util.*;
 
 /**
  * Utility methods for working with {@link Arg}s.
@@ -45,10 +45,11 @@ public final class TypeArgUtils {
     public static Arg getArg(Object concrete, Class<?> supertype) {
         Utils.requireNonNull(concrete);
         Utils.requireNonNull(supertype);
-        var arg = ArgHandle.of(concrete.getClass())
+        var arg = Internal.argHandle(concrete.getClass())
             .arg(concrete, supertype);
         if (arg.isEmpty()) {
-            throw new IllegalArgumentException("Object " + concrete + " is not an instance of " + supertype);
+            System.out.println(Arrays.toString(concrete.getClass().getDeclaredFields()));
+            throw new IllegalArgumentException("Object " + concrete + " (" + concrete.getClass() + ") is not an instance of " + supertype);
         }
         return arg.get();
     }
@@ -126,10 +127,9 @@ public final class TypeArgUtils {
         if (currentIndex == indices.length) { // base case
             return concrete;
         }
-        if (concrete instanceof RawType) {
-            throw new IllegalArgumentException("RawType has no type args");
-        } else if (concrete instanceof InnerClassType ict) {
-            return getArgInternal(ict.innerType(), currentIndex, indices);
+        if (concrete instanceof RawType rt) {
+            var arg = rawTypeArg(rt.type());
+            return getArgInternal(arg, currentIndex + 1, indices);
         } else if (concrete instanceof ArrayType a) {
             return getArgInternal(a.componentType(), currentIndex, indices);
         } else if (concrete instanceof ParameterizedType p) {
@@ -137,6 +137,8 @@ public final class TypeArgUtils {
             Objects.checkIndex(indices[currentIndex], list.size());
             return getArgInternal(list.get(indices[currentIndex]), currentIndex + 1, indices);
             // wildcard and intersection are not supported because we are in the context of a concrete type
+        } else if (concrete instanceof InnerClassType i) {
+            return getArgInternal(i.innerType(), currentIndex, indices);
         } else if (concrete instanceof Wildcard) {
             throw new UnsupportedOperationException("Wildcard not supported");
         } else if (concrete instanceof Intersection) {
@@ -144,11 +146,32 @@ public final class TypeArgUtils {
         } else if (concrete instanceof ClassType) {
             throw new IllegalArgumentException("ClassType has no type args");
         }
-        throw new IllegalArgumentException();
+        throw new IllegalArgumentException(concrete.getClass().getName());
     }
 
     private TypeArgUtils() {
         throw new AssertionError();
+    }
+
+    private static Arg rawTypeArg(Class<?> clazz) {
+        if (clazz == Map.class || clazz == HashMap.class || clazz == AbstractMap.class) {
+            return mapLike(clazz);
+        } else if (clazz == List.class || clazz == ArrayList.class || clazz == AbstractList.class || clazz == Collection.class || clazz == AbstractCollection.class || clazz == Iterable.class) {
+            return collectionLike(clazz);
+        }
+        return ParameterizedType.of(clazz, Arg.fromTypes(clazz.getTypeParameters()));
+    }
+
+    private static Arg mapLike(Class<?> clazz) {
+        return ParameterizedType.of(clazz, objectClassType(), objectClassType());
+    }
+
+    private static Arg collectionLike(Class<?> clazz) {
+        return ParameterizedType.of(clazz, objectClassType());
+    }
+
+    private static Arg objectClassType() {
+        return ClassType.of(Object.class);
     }
 
 }

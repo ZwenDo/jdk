@@ -33,6 +33,7 @@ import jdk.internal.reflect.CallerSensitive;
 import jdk.internal.reflect.Reflection;
 import jdk.internal.vm.annotation.ForceInline;
 import jdk.internal.vm.annotation.Hidden;
+import jdk.internal.vm.annotation.IntrinsicCandidate;
 import jdk.internal.vm.annotation.Stable;
 import sun.invoke.empty.Empty;
 import sun.invoke.util.ValueConversions;
@@ -50,6 +51,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -277,6 +279,71 @@ abstract class MethodHandleImpl {
         return count;
     }
 
+    private static class InternalMap {
+
+        public record Entry(Object key, int[] value, Entry next) {}
+
+        private final Entry[] entries;
+
+        private InternalMap(int size) {
+//            var actualSize = (int) Math.ceil(size / .75);
+            int n = -1 >>> Integer.numberOfLeadingZeros(size - 1);
+            var arraySize = (n < 0) ? 1 : (n >= 1 << 30) ? 1 << 30 : n + 1;
+            entries = new Entry[arraySize];
+        }
+
+        public int[] get(Object key) {
+            int hash = key.hashCode();
+            int index = hash & (entries.length - 1);
+            for (Entry e = entries[index]; e != null; e = e.next) {
+                if (e.key.equals(key)) {
+                    return e.value;
+                }
+            }
+            return null;
+        }
+
+        public void put(Object key, int[] value) {
+            int hash = key.hashCode();
+            int index = hash & (entries.length - 1);
+            entries[index] = new Entry(key, value, entries[index]);
+        }
+
+        public Iterator<Entry> entries() {
+            return new Iterator<>() {
+                private int index = 0;
+                private Entry current = null;
+                private Entry next = null;
+
+                @Override
+                public boolean hasNext() {
+                    if (next != null) {
+                        return true;
+                    }
+                    while (index < entries.length) {
+                        next = entries[index++];
+                        if (next != null) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                @Override
+                public Entry next() {
+                    if (!hasNext()) {
+                        throw new NoSuchElementException();
+                    }
+                    current = next;
+                    next = null;
+                    return current;
+                }
+            };
+
+        }
+
+    }
+
     static MethodHandle makePairwiseConvertByEditor(MethodHandle target, MethodType srcType,
                                                     boolean strict, boolean monobox) {
         // In method types arguments start at index 0, while the LF
@@ -291,7 +358,7 @@ abstract class MethodHandleImpl {
         BoundMethodHandle mh = target.rebind();
 
         // Match each unique conversion to the positions at which it is to be applied
-        HashMap<Object, int[]> convSpecMap = HashMap.newHashMap(convCount);
+        var convSpecMap = new InternalMap(convCount);
         for (int i = 0; i < convSpecs.length - MH_RECEIVER_OFFSET; i++) {
             Object convSpec = convSpecs[i];
             if (convSpec == null) continue;
@@ -304,8 +371,10 @@ abstract class MethodHandleImpl {
             }
             convSpecMap.put(convSpec, positions);
         }
-        for (var entry : convSpecMap.entrySet()) {
-            Object convSpec = entry.getKey();
+        var iterator = convSpecMap.entries();
+        while (iterator.hasNext()) {
+            var entry = iterator.next();
+            Object convSpec = entry.key();
 
             MethodHandle fn;
             if (convSpec instanceof Class) {
@@ -313,7 +382,7 @@ abstract class MethodHandleImpl {
             } else {
                 fn = (MethodHandle) convSpec;
             }
-            int[] positions = entry.getValue();
+            int[] positions = entry.value();
             Class<?> newType = basicSrcType.parameterType(positions[0] - MH_RECEIVER_OFFSET);
             BasicType newBasicType = BasicType.basicType(newType);
             convCount -= positions.length;
@@ -582,7 +651,7 @@ abstract class MethodHandleImpl {
             int len = array.length;
             if (len == n)  return;
         } else {
-            int len = java.lang.reflect.Array.getLength(av);
+            int len = Array.getLength(av);
             if (len == n)  return;
         }
         // fall through to error:
@@ -600,7 +669,7 @@ abstract class MethodHandleImpl {
 
     // Intrinsified by C2. Counters are used during parsing to calculate branch frequencies.
     @Hidden
-    @jdk.internal.vm.annotation.IntrinsicCandidate
+    @IntrinsicCandidate
     static boolean profileBoolean(boolean result, int[] counters) {
         // Profile is int[2] where [0] and [1] correspond to false and true occurrences respectively.
         int idx = result ? 1 : 0;
@@ -615,7 +684,7 @@ abstract class MethodHandleImpl {
 
     // Intrinsified by C2. Returns true if obj is a compile-time constant.
     @Hidden
-    @jdk.internal.vm.annotation.IntrinsicCandidate
+    @IntrinsicCandidate
     static boolean isCompileConstant(Object obj) {
         return false;
     }
@@ -838,7 +907,7 @@ abstract class MethodHandleImpl {
         invokeArgs[0] = names[SELECT_ALT];
         names[CALL_TARGET] = new Name(basicType, invokeArgs);
 
-        lform = LambdaForm.create(lambdaType.parameterCount(), names, /*forceInline=*/true, Kind.GUARD);
+        lform = create(lambdaType.parameterCount(), names, /*forceInline=*/true, Kind.GUARD);
 
         return basicType.form().setCachedLambdaForm(MethodTypeForm.LF_GWT, lform);
     }
@@ -914,7 +983,7 @@ abstract class MethodHandleImpl {
         Object[] unboxArgs  = new Object[] {names[GET_UNBOX_RESULT], names[TRY_CATCH]};
         names[UNBOX_RESULT] = new Name(invokeBasicUnbox, unboxArgs);
 
-        lform = LambdaForm.create(lambdaType.parameterCount(), names, Kind.GUARD_WITH_CATCH);
+        lform = create(lambdaType.parameterCount(), names, Kind.GUARD_WITH_CATCH);
 
         return basicType.form().setCachedLambdaForm(MethodTypeForm.LF_GWC, lform);
     }
@@ -1786,7 +1855,7 @@ abstract class MethodHandleImpl {
             names[UNBOX_RESULT] = new Name(invokeBasicUnbox, unboxArgs);
 
             lform = basicType.form().setCachedLambdaForm(MethodTypeForm.LF_LOOP,
-                    LambdaForm.create(lambdaType.parameterCount(), names, Kind.LOOP));
+                    create(lambdaType.parameterCount(), names, Kind.LOOP));
         }
 
         // BOXED_ARGS is the index into the names array where the loop idiom starts
@@ -2020,7 +2089,7 @@ abstract class MethodHandleImpl {
         Object[] unboxArgs  = new Object[] {names[GET_UNBOX_RESULT], names[TRY_FINALLY]};
         names[UNBOX_RESULT] = new Name(invokeBasicUnbox, unboxArgs);
 
-        lform = LambdaForm.create(lambdaType.parameterCount(), names, Kind.TRY_FINALLY);
+        lform = create(lambdaType.parameterCount(), names, Kind.TRY_FINALLY);
 
         return basicType.form().setCachedLambdaForm(MethodTypeForm.LF_TF, lform);
     }
@@ -2115,7 +2184,7 @@ abstract class MethodHandleImpl {
                     names[CALL_NEW_ARRAY], storeIndex, names[argCursor]);
         }
 
-        LambdaForm lform = LambdaForm.create(lambdaType.parameterCount(), names, CALL_NEW_ARRAY, Kind.COLLECTOR);
+        LambdaForm lform = create(lambdaType.parameterCount(), names, CALL_NEW_ARRAY, Kind.COLLECTOR);
         if (isSharedLambdaForm) {
             lform = basicType.form().setCachedLambdaForm(MethodTypeForm.LF_COLLECTOR, lform);
         }
@@ -2240,7 +2309,7 @@ abstract class MethodHandleImpl {
             names[UNBOXED_RESULT] = new Name(invokeBasic, unboxArgs);
         }
 
-        lform = LambdaForm.create(lambdaType.parameterCount(), names, Kind.TABLE_SWITCH);
+        lform = create(lambdaType.parameterCount(), names, Kind.TABLE_SWITCH);
         LambdaForm prev = TableSwitchCacheKey.CACHE.putIfAbsent(key, lform);
         return prev != null ? prev : lform;
     }

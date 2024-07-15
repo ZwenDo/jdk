@@ -20,7 +20,6 @@ public non-sealed interface ArrayType extends Arg {
      */
     static ArrayType of(Arg componentTypeArgs) {
         Utils.requireNonNull(componentTypeArgs);
-        Arg.dump();
         return new ArrayType() {
 
             @Override

@@ -24,10 +24,17 @@
  */
 package java.lang.invoke;
 
+import jdk.internal.module.ModuleInfo;
+import jdk.internal.module.ModulePatcher;
+import jdk.internal.module.ModulePath;
 import sun.invoke.util.Wrapper;
 
+import java.lang.module.FindException;
+import java.lang.module.ModuleDescriptor;
 import java.lang.reflect.Modifier;
+import java.util.NoSuchElementException;
 import java.util.ptype.Arg;
+import java.util.stream.Collectors;
 
 import static java.lang.invoke.MethodHandleInfo.*;
 import static sun.invoke.util.Wrapper.forPrimitiveType;
@@ -71,6 +78,7 @@ import static sun.invoke.util.Wrapper.isWrapperType;
     final Class<?>[] altInterfaces;           // Additional interfaces to be implemented
     final MethodType[] altMethods;            // Signatures of additional methods to bridge
     final boolean isFromParameterizedInterface;     // Is the interface represented by this lambda a parameterized type "true"
+//    final boolean implMethodHasArgParameter;
 
 
     /**
@@ -131,8 +139,9 @@ import static sun.invoke.util.Wrapper.isWrapperType;
         this.caller = caller;
         this.targetClass = caller.lookupClass();
         this.factoryType = factoryType;
-        this.isFromParameterizedInterface = false;//factoryType.parameterCount() > 0 && Arg.class == factoryType.parameterType(0);
-
+        this.isFromParameterizedInterface = factoryType.returnType().getTypeParameters().length > 0
+                                            && !factoryType.parameterList().isEmpty()
+                                            && factoryType.parameterList().getLast() == Arg.class;
 
         this.interfaceClass = factoryType.returnType();
 
@@ -222,24 +231,25 @@ import static sun.invoke.util.Wrapper.isWrapperType;
     abstract CallSite buildCallSite()
             throws LambdaConversionException;
 
+    private static boolean ok;
     /**
      * Check the meta-factory arguments for errors
      * @throws LambdaConversionException if there are improper conversions
      */
     void validateMetafactoryArgs() throws LambdaConversionException {
         // Check arity: captured + SAM == impl
-        final int implArity = implMethodType.parameterCount();
+        final int implArity = isFromParameterizedInterface ? implMethodType.parameterCount() - 1 : implMethodType.parameterCount();
         // If the factory type is a parameterized interface, ignore the first parameter which is the Type
         final int capturedArity = isFromParameterizedInterface ? factoryType.parameterCount() - 1 : factoryType.parameterCount();
         final int samArity = interfaceMethodType.parameterCount();
         final int dynamicArity = dynamicMethodType.parameterCount();
-        if (isFromParameterizedInterface) {
-//            System.err.println("==== dump ====");
-//            System.err.println(implMethodType);
-//            System.err.println(factoryType);
-        }
         if (implArity != capturedArity + samArity) {
-            System.out.println(implMethodType + " // " + interfaceMethodType + " // " + interfaceClass);
+            if (!ok) {
+                ok = true;
+            System.out.println(implArity + " // " + capturedArity + " // " + samArity);
+            System.out.println(implMethodType + " // " + factoryType + " // " + interfaceMethodType + " // " + dynamicMethodType + " // " + interfaceClass);
+            new Exception().printStackTrace();
+            }
             throw new LambdaConversionException(
                     String.format("Incorrect number of parameters for %s method %s; %d captured parameters, %d functional interface method parameters, %d implementation parameters",
                                   implIsInstanceMethod ? "instance" : "static", implInfo,
@@ -275,7 +285,7 @@ import static sun.invoke.util.Wrapper.isWrapperType;
                 // receiver is a captured variable
                 capturedStart = 1;
                 samStart = capturedArity;
-                receiverClass = factoryType.parameterType(isFromParameterizedInterface ? 1 : 0);
+                receiverClass = factoryType.parameterType(0);
             }
 
             // check receiver type
@@ -290,10 +300,11 @@ import static sun.invoke.util.Wrapper.isWrapperType;
             samStart = capturedArity;
         }
 
+//        var actualCapturedArity = isFromParameterizedInterface ? capturedArity - 1 : capturedArity;
         // Check for exact match on non-receiver captured arguments
         for (int i=capturedStart; i<capturedArity; i++) {
             Class<?> implParamType = implMethodType.parameterType(i);
-            Class<?> capturedParamType = factoryType.parameterType(isFromParameterizedInterface ? i + 1 : i);
+            Class<?> capturedParamType = factoryType.parameterType(i);
             if (!capturedParamType.equals(implParamType)) {
                 throw new LambdaConversionException(
                         String.format("Type mismatch in captured lambda parameter %d: expecting %s, found %s",

@@ -2197,10 +2197,6 @@ public class Gen extends JCTree.Visitor {
                 }
                 break;
             case NULLCHK:
-                if (names.java_util_ptype.equals(topLevelClass.packge().getQualifiedName())) break; // ignore null check for java.util.ptype
-                if (syms.objectsType.tsym.hasNewGenerics()) {
-                    code.emitop0(aconst_null); // because requireNonNull expects a methodTypeArg as first argument
-                }
                 result = od.load();
                 code.emitop0(dup);
                 genNullCheck(tree);
@@ -2214,29 +2210,18 @@ public class Gen extends JCTree.Visitor {
     /** Generate a null check from the object value at stack top. */
     private void genNullCheck(JCTree tree) {
         code.statBegin(tree.pos);
-        Symbol msym;
-        if (syms.objectType.tsym.hasNewGenerics()) {
-            msym = new MethodSymbol(
-                PUBLIC | STATIC,
-                names.requireNonNull,
-                new MethodType(
-                    List.of(syms.methodTypeArgs, syms.objectType),
-                    syms.objectType,
-                    List.nil(),
-                    syms.methodClass
-                ),
-                syms.objectsType.tsym
-            );
-        } else {
-            msym = rs.resolveInternalMethod(
-                tree.pos(),
-                attrEnv,
-                syms.objectsType,
-                names.requireNonNull,
+        var msym = new MethodSymbol(
+            PUBLIC | STATIC,
+            names.requireNonNull,
+            new MethodType(
                 List.of(syms.objectType),
-                null
-            );
-        }
+                syms.objectType,
+                List.nil(),
+                syms.methodClass
+            ),
+            syms.objectsType.tsym
+        );
+
         items.makeStaticItem(msym).invoke();
         code.emitop0(pop);
     }
@@ -2423,9 +2408,6 @@ public class Gen extends JCTree.Visitor {
                     base = base.load();
                 base.drop();
             } else {
-                if (syms.objectsType.tsym.hasNewGenerics()) {
-                    code.emitop0(aconst_null); // because requireNonNull expects a methodTypeArg as first argument
-                }
                 base.load();
                 genNullCheck(tree.selected);
             }

@@ -802,6 +802,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
     public abstract static class JCFunctionalExpression extends JCPolyExpression {
 
         public List<TransParameterizedTypes.ScopeTypeParameter> scopeTypeParameters = List.nil();
+        public List<Map<Symbol, Type>> typeMappingScope = List.nil();
 
         public JCFunctionalExpression() {
             //a functional expression is always a 'true' poly

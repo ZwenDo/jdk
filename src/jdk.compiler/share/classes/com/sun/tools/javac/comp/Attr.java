@@ -4967,10 +4967,12 @@ public class Attr extends JCTree.Visitor {
                         !owntype.isPartial()) {
                     //if this is not a partially inferred method type, erase return type. Otherwise,
                     //erasure is carried out in PartiallyInferredMethodType.check().
-                    owntype = new MethodType(owntype.getParameterTypes(),
+                    var copy = new MethodType(owntype.getParameterTypes(),
                             types.erasure(owntype.getReturnType()),
                             types.erasure(owntype.getThrownTypes()),
                             syms.methodClass);
+                    copy.inferrenceMapping = owntype.asMethodType().inferrenceMapping;
+                    owntype = copy;
                 }
             }
 

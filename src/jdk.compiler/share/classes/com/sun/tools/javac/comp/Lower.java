@@ -3128,7 +3128,12 @@ public class Lower extends TreeTranslator {
         boolean isEnum = (tree.constructor.owner.flags() & ENUM) != 0;
         List<Type> argTypes = tree.constructor.type.getParameterTypes();
         if (isEnum) argTypes = argTypes.prepend(syms.intType).prepend(syms.stringType);
+        try {
         tree.args = boxArgs(argTypes, tree.args, tree.varargsElement);
+    } catch (NullPointerException e) {
+        log.printRawLines(argTypes +  " // " + tree.args + " // " + currentClass);
+        throw e;
+    }
         tree.varargsElement = null;
 
         // If created class is local, add free variables after
@@ -3322,9 +3327,9 @@ public class Lower extends TreeTranslator {
             argtypes = argtypes.tail.tail;
         try {
             tree.args = boxArgs(argtypes, tree.args, tree.varargsElement);
-        } catch (Throwable t) {
-            log.printRawLines(tree + " // " + tree.args + " // " + argtypes);
-            throw t;
+        } catch (AssertionError e) {
+            log.printRawLines(currentClass + " // " + tree + " // " + argtypes + " // " + tree.args);
+            throw e;
         }
         tree.varargsElement = null;
         Name methName = TreeInfo.name(tree.meth);

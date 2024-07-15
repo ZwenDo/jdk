@@ -23,7 +23,6 @@ public non-sealed interface RawType extends Arg {
      */
     static RawType of(Class<?> type) {
         Utils.requireNonNull(type);
-        Arg.dump();
         return new RawType() {
             @Override
             public Class<?> type() {
@@ -35,7 +34,7 @@ public non-sealed interface RawType extends Arg {
                 Utils.requireNonNull(actual);
                 if (variance == Variance.INVARIANT) {
                     return (actual instanceof RawType rawType && type.equals(rawType.type()))
-                        || (actual instanceof ParameterizedType parameterizedType && type.equals(parameterizedType.rawType()));
+                           || (actual instanceof ParameterizedType parameterizedType && type.equals(parameterizedType.rawType()));
                 }
                 if (actual instanceof ParameterizedType parameterizedType) {
                     return compareClass(parameterizedType.rawType(), variance);
@@ -43,12 +42,12 @@ public non-sealed interface RawType extends Arg {
                     return compareClass(rawType.type(), variance);
                 } else if (actual instanceof Intersection intersection) {
                     return intersection.bounds()
-                        .anyMatch(Utils.isAssignableLambda(this, variance));
+                        .anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                 } else if (actual instanceof Wildcard wildcard) {
                     if (variance == Variance.COVARIANT) {
-                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                     } else if (variance == Variance.CONTRAVARIANT) {
-                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambda(this, variance));
+                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
                     }
                     throw new IllegalArgumentException();
                 } else if (actual instanceof InnerClassType innerClassType) {
@@ -84,6 +83,18 @@ public non-sealed interface RawType extends Arg {
                 return Arg.toString(this);
             }
         };
+    }
+
+    /**
+     * Creates a {@link RawType} from the given name of the raw type. This method is used in cases where the class is
+     * accessible through the class literal syntax due to visibility constraints.
+     *
+     * @param name the name of the class
+     * @return the {@link RawType}
+     */
+    static RawType of(String name) {
+        Utils.requireNonNull(name);
+        return of(Internal.findClass(name));
     }
 
 }

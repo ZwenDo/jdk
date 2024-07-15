@@ -31,7 +31,6 @@ public non-sealed interface Intersection extends Arg {
      */
     static Intersection of(ArgList bounds) {
         Utils.requireNonNull(bounds);
-        Arg.dump();
         if (bounds.size() < 2) {
             throw new IllegalArgumentException("bounds.size() < 2");
         }

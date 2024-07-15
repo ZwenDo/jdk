@@ -20,7 +20,6 @@ public interface MethodTypeArgs {
      * @return a new instance of {@code MethodTypeArgs} with the given type arguments
      */
     static MethodTypeArgs of(Arg... args) {
-        Arg.dump();
         if (args.length == 0) {
             throw new IllegalArgumentException("args.length == 0");
         }

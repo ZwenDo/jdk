@@ -6,18 +6,15 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Objects;
+import java.util.WeakHashMap;
+import java.util.function.Function;
 
 final class Internal {
 
     private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
 
-    private static final ClassValue<ArgHandle> ARG_HANDLE_CACHE = new ClassValue<>() {
-        @Override
-        protected ArgHandle computeValue(Class<?> type) {
-            Utils.requireNonNull(type);
-            return ArgHandle.of(type);
-        }
-    };
+    private static final WeakHashMap<Class<?>, ArgHandle> ARG_HANDLE_CACHE = new WeakHashMap<>();
 
     private static final ClassValue<ArgList> STATIC_ARG_CACHE = new ClassValue<>() {
         @Override
@@ -46,7 +43,12 @@ final class Internal {
     public static ArgHandle argHandle(Class<?> type) {
         Utils.requireNonNull(type);
         synchronized (ARG_HANDLE_CACHE) {
-            return ARG_HANDLE_CACHE.get(type);
+            var res = ARG_HANDLE_CACHE.get(type);
+            if (res == null) {
+                res = ArgHandle.of(type);
+                ARG_HANDLE_CACHE.put(type, res);
+            }
+            return res;
         }
     }
 
@@ -93,7 +95,7 @@ final class Internal {
         try {
             return LOOKUP.findGetter(type, "this$" + index, enclosingClass);
         } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new AssertionError(e);
+            return null;
         }
     }
 
@@ -142,6 +144,17 @@ final class Internal {
 //            });
 //        }
     }
+
+    public static Class<?> findClass(String internalName) {
+        Objects.requireNonNull(internalName);
+        try {
+            return Class.forName(internalName, false, YUP);
+        } catch (ClassNotFoundException e) {
+            throw new AssertionError(e + " // " + internalName);
+        }
+    }
+
+    private static final ClassLoader YUP = ClassLoader.getPlatformClassLoader();
 
     static {
         try {

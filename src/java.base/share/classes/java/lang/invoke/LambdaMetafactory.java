@@ -337,6 +337,7 @@ public final class LambdaMetafactory {
                                              false,
                                              EMPTY_CLASS_ARRAY,
                                              EMPTY_MT_ARRAY);
+
         mf.validateMetafactoryArgs();
         return mf.buildCallSite();
     }
