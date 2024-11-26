@@ -243,7 +243,7 @@ public class TransTypes extends TreeTranslator {
         Type bridgeType = meth.erasure(types).asMethodType();
         var positions = types.typeArgPositions(meth);
         bridgeType = transParameterizedTypes.copyTypeAndInsertTypeArgIfNeeded(bridgeType, positions);
-        long flags = impl.flags() & AccessFlags | SYNTHETIC | BRIDGE | NEW_GENERICS |
+        long flags = impl.flags() & AccessFlags | SYNTHETIC | BRIDGE |
                 (origin.isInterface() ? DEFAULT : 0);
         MethodSymbol bridge = new MethodSymbol(flags,
                                                meth.name,
@@ -252,7 +252,7 @@ public class TransTypes extends TreeTranslator {
         /* once JDK-6996415 is solved it should be checked if this approach can
          * be applied to method addOverrideBridgesIfNeeded
          */
-        var prependMethodTypeArgs = positions.hasMethodTypeArg() && !impl.owner.hasNewGenerics();
+        var prependMethodTypeArgs = positions.hasMethodTypeArg() && !types.typeArgPositions(impl).hasMethodTypeArg();//!impl.owner.hasNewGenerics();
         bridge.params = createBridgeParams(impl, bridge, bridgeType, prependMethodTypeArgs);
         bridge.setAttributes(impl);
 
@@ -290,17 +290,17 @@ public class TransTypes extends TreeTranslator {
     private List<VarSymbol> createBridgeParams(MethodSymbol impl, MethodSymbol bridge,
             Type bridgeType, boolean prependMethodTypeArgs) {
         List<VarSymbol> bridgeParams = null;
-        if (prependMethodTypeArgs) {
-            impl.params = impl.params.prepend(
-                new VarSymbol(
-                    PARAMETER,
-                    transParameterizedTypes.computeArgParamName(impl, syms.methodTypeArgs),
-                    syms.methodTypeArgs,
-                    impl
-                )
-            );
-        }
         if (impl.params != null) {
+            if (prependMethodTypeArgs) {
+                impl.params = impl.params.prepend(
+                    new VarSymbol(
+                        PARAMETER,
+                        transParameterizedTypes.computeArgParamName(impl, syms.methodTypeArgs),
+                        syms.methodTypeArgs,
+                        impl
+                    )
+                );
+            }
             bridgeParams = List.nil();
             List<VarSymbol> implParams = impl.params;
             Type.MethodType mType = (Type.MethodType)bridgeType;

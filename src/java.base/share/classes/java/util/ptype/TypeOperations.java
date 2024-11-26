@@ -1,20 +1,8 @@
 package java.util.ptype;
 
 import jdk.internal.misc.VM;
-import jdk.internal.org.objectweb.asm.Handle;
-import sun.reflect.generics.tree.SimpleClassTypeSignature;
 
-import java.lang.invoke.CallSite;
-import java.lang.invoke.LambdaMetafactory;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MutableCallSite;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
-
-import static java.lang.invoke.MethodType.methodType;
 
 /**
  * Utility methods for working with {@link Arg}s.
@@ -22,6 +10,10 @@ import static java.lang.invoke.MethodType.methodType;
 public final class TypeOperations {
 
     private static final StringHashSet REPORTED_CAST_LOCATIONS = new StringHashSet();
+    private static Mode mode = null;
+
+    private static String mainId = null;
+    private static boolean fromMain = false;
 
     private static final class LockHolder {
         private static final ReentrantLock LOCK = new ReentrantLock();
@@ -35,20 +27,39 @@ public final class TypeOperations {
      * @param location the location at which the cast has been performed
      * @return the cast object
      */
-    public static Object checkCast(Object obj, Arg expected, String location) {
+    public static Object checkCast(Object obj, Arg expected, String location, String kind, String target) {
+        if (!VM.isBooted() || !fromMain) return obj;
         Utils.requireNonNull(expected);
         Utils.requireNonNull(location);
-        if (!VM.isBooted()) return obj;
-
-        if (obj == null) {
-            return null;
+        Utils.requireNonNull(kind);
+        Utils.requireNonNull(target);
+        if (mode == null) {
+            try {
+                LockHolder.LOCK.lock();
+                if (mode == null) {
+                    var prop = System.getProperty("reification.mode");
+                    if (prop != null) {
+                        mode = Mode.fromString(prop);
+                    } else {
+                        mode = Mode.DISABLED;
+                    }
+                }
+            } finally {
+                LockHolder.LOCK.unlock();
+            }
         }
+
+        if (obj == null) return null;
+        if (!shouldPerform(kind, target)) return obj;
 
         if (!isInstance(obj, expected)) {
             try {
                 LockHolder.LOCK.lock();
                 if (REPORTED_CAST_LOCATIONS.add(location)) {
-                    System.out.println(message(obj, expected, location));
+                    var message = message(obj, expected, location, kind);
+                    if (!"java.base/java.util.concurrent.ConcurrentHashMap$Node.<init>(ConcurrentHashMap.java:633): STORAGE jdk.internal.util.SoftReferenceKey to ReferenceKey<BaseLocale>".equals(message)) {
+                        System.out.println(message);
+                    }
                 }
             } finally {
                 LockHolder.LOCK.unlock();
@@ -58,13 +69,59 @@ public final class TypeOperations {
         return obj;
     }
 
+    public static void mainStartReached(String id) {
+        Utils.requireNonNull(id);
+        if (mainId != null) return;
+        mainId = id;
+        fromMain = true;
+    }
+
+    public static void mainEndReached(String id) {
+        Utils.requireNonNull(mainId);
+        if (mainId == null) throw new AssertionError();
+        if (!mainId.equals(id)) return;
+        fromMain = false;
+    }
+
+    private static boolean shouldPerform(String strKind, String strTarget) {
+        var kind = CheckLocationKind.fromString(strKind);
+        var target = CheckTarget.fromString(strTarget);
+        switch (mode) {
+            case Mode.DISABLED:
+                return false;
+            case Mode.FULL:
+                return true;
+            case Mode.MINIMAL:
+                return kind == CheckLocationKind.STORAGE && target == CheckTarget.TYPE_PARAMETER;
+            case Mode.NORMAL:
+                return target == CheckTarget.TYPE_PARAMETER && (kind == CheckLocationKind.ENTRY || kind == CheckLocationKind.EXIT || kind == CheckLocationKind.STORAGE);
+            default:
+                throw new IllegalArgumentException();
+        }
+    }
+
     private static boolean isInstance(Object obj, Arg expected) {
         // var cast = (A<String>.B<Integer>) obj;
         if (expected instanceof InnerClassType innerClassType) {
             if (!isInstance(obj, innerClassType.innerType())) { // check inner type
                 return false;
             }
-            var outer = Internal.outerThis(obj);
+
+            // we need to extract the expected inner class, because the actual object inner class might have an outer
+            // this that does not extend the expected outer class (e.g. Attr.ResultInfo & Resolve.MethodResultInfo).
+            Class<?> expectedInnerClass;
+            var innerClass = innerClassType.innerType();
+            if (innerClass instanceof ClassType outerClassType) {
+                expectedInnerClass = outerClassType.type();
+            } else if (innerClass instanceof ParameterizedType parameterizedType) {
+                expectedInnerClass = parameterizedType.rawType();
+            } else if (innerClass instanceof RawType rawType) {
+                expectedInnerClass = rawType.type();
+            } else {
+                throw new AssertionError("Unexpected outer type: " + innerClassType.outerType());
+            }
+
+            var outer = Internal.outerThis(obj, expectedInnerClass);
             if (outer.isPresent()) {
                 return isInstance(outer.get(), innerClassType.outerType());
             } else { // by default if no outer type is specified, yield true
@@ -124,7 +181,7 @@ public final class TypeOperations {
         return expected.isAssignable(opt.get(), Arg.Variance.COVARIANT);
     }
 
-    private static String message(Object obj, Arg expected, String location) {
+    private static String message(Object obj, Arg expected, String location, String kind) {
         var objClass = obj.getClass();
         if (objClass.isAnonymousClass()) {
             var interfaces = objClass.getInterfaces();
@@ -133,7 +190,9 @@ public final class TypeOperations {
 
         var actualLocation = location.substring(location.indexOf('!') + 1);
         var builder = new StringBuilder(actualLocation)
-            .append(": ");
+            .append(": ")
+            .append(kind)
+            .append(" ");
 
         var arg = Internal.argHandle(objClass)
             .arg(obj, objClass);

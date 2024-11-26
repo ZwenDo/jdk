@@ -2901,12 +2901,7 @@ public class Lower extends TreeTranslator {
                 lambdaTranslationMap = (tree.sym.flags() & SYNTHETIC) != 0 &&
                         tree.sym.name.startsWith(names.lambda) ?
                         makeTranslationMap(tree) : null;
-                try {
-                    super.visitMethodDef(tree);
-                } catch (Throwable t) {
-                    log.printRawLines(tree.toString());
-                    throw t;
-                }
+                super.visitMethodDef(tree);
             } finally {
                 lambdaTranslationMap = prevLambdaTranslationMap;
             }
@@ -3128,12 +3123,7 @@ public class Lower extends TreeTranslator {
         boolean isEnum = (tree.constructor.owner.flags() & ENUM) != 0;
         List<Type> argTypes = tree.constructor.type.getParameterTypes();
         if (isEnum) argTypes = argTypes.prepend(syms.intType).prepend(syms.stringType);
-        try {
         tree.args = boxArgs(argTypes, tree.args, tree.varargsElement);
-    } catch (NullPointerException e) {
-        log.printRawLines(argTypes +  " // " + tree.args + " // " + currentClass);
-        throw e;
-    }
         tree.varargsElement = null;
 
         // If created class is local, add free variables after
@@ -3325,12 +3315,7 @@ public class Lower extends TreeTranslator {
         List<Type> argtypes = meth.type.getParameterTypes();
         if (meth.name == names.init && meth.owner == syms.enumSym && currentClass != syms.enumSym)
             argtypes = argtypes.tail.tail;
-        try {
-            tree.args = boxArgs(argtypes, tree.args, tree.varargsElement);
-        } catch (AssertionError e) {
-            log.printRawLines(currentClass + " // " + tree + " // " + argtypes + " // " + tree.args);
-            throw e;
-        }
+        tree.args = boxArgs(argtypes, tree.args, tree.varargsElement);
         tree.varargsElement = null;
         Name methName = TreeInfo.name(tree.meth);
         if (meth.name==names.init) {

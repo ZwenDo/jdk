@@ -25,7 +25,6 @@ import com.sun.tools.javac.util.Names;
 import com.sun.tools.javac.util.Pair;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -34,6 +33,8 @@ import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.IntFunction;
+import java.util.ptype.CheckLocationKind;
+import java.util.ptype.CheckTarget;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -130,6 +131,12 @@ public final class TransParameterizedTypes extends TreeTranslator {
      * We assume that there will not be more thant MAX_LONG casts to generate during the whole compilation process
      */
     private long locationCount;
+
+    /**
+     * These two fields are used when dealing with an external field assign
+     */
+    private Symbol externalFieldOwner;
+    private JCTree.JCExpression externalSymbolAccess;
     //endregion
 
     //region instantiation
@@ -159,6 +166,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
     }
     //endregion
 
+
     /**
      * this method is only called for the top-level class
      */
@@ -187,10 +195,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var packageName = clazz.packge().getQualifiedName().toString();
         var fullName = clazz.fullname.toString();
         var ignored = packageName.startsWith("java.lang")
-                      || packageName.startsWith("jdk.internal")
-                      || fullName.equals("java.util.WeakHashMap")
-                      || fullName.equals("aaa")
-                      || packageName.startsWith("sun.reflect.generics");
+            || packageName.startsWith("jdk.internal")
+            || "java.util.WeakHashMap".equals(fullName)
+            || (clazz.owner instanceof Symbol.ClassSymbol && !clazz.owner.hasNewGenerics())
+            || packageName.startsWith("sun.reflect.generics");
         return !ignored;
 //        return false;
     }
@@ -432,7 +440,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
             current = current.tail;
         }
-        throw new AssertionError("Type not found in mapping: " + typeVar + " in " + typeMappingScope);
+        // workaround to ignore if the symbol is external
+        if (externalFieldOwner == null) {
+            throw new AssertionError("Type not found in mapping: " + typeVar + " in " + typeMappingScope);
+        }
+        return typeVar;
     }
     //endregion
 
@@ -480,7 +492,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 case CLASSDEF -> rewriteClass((JCTree.JCClassDecl) member);
 
                 // fields init have been moved to constructors EXCEPT we are in an ignored class
-                 case VARDEF -> parameterizedMethodCallVisitor.visitField((JCTree.JCVariableDecl) member);
+                case VARDEF -> parameterizedMethodCallVisitor.visitField((JCTree.JCVariableDecl) member);
                 // blocks here can only be fields without initialization and static blocks
                 case BLOCK -> parameterizedMethodCallVisitor.visitClassBlock((JCTree.JCBlock) member);
 
@@ -712,7 +724,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var clazz = superTypeParams.clazz;
 
         args.add(make.Select(make.Type(clazz.type), syms.getClassField(clazz.type, types)));
-        createSuperArgObject(args, superTypeParams.getTypeArguments());
+
+        superTypeParams.getTypeArguments().forEach(t -> {
+            args.add(generateArgs(null, t.type));
+        });
 
         root.args = args.toList();
         return root;
@@ -790,11 +805,17 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 var innerClassCall = innerClassTypeOfInvocation(-1);
                 currentArgs.add(innerClassCall);
                 var oldArgs = currentArgs;
-                // TODO problem here, we should recurse on the outer class
                 currentArgs = new ListBuffer<>();
-                currentArgs.add(make.ClassLiteral(tree.sym.owner.type));
                 try {
+                    // outer
                     super.visitSelect(tree);
+
+                    // inner
+                    var inner = (Symbol.ClassSymbol) tree.sym;
+                    var isAccessible = isAccessible(inner);
+                    var classOfCall = classTypeOfInvocation(-1, isAccessible);
+                    classOfCall.args = List.of(classArgParam(inner, isAccessible));
+                    currentArgs.add(classOfCall);
                 } finally {
                     innerClassCall.args = currentArgs.toList();
                     currentArgs = oldArgs;
@@ -804,7 +825,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         }
         var visitor = new SuperArgBuildingVisitor();
-        superTypeParams.forEach(type -> type.accept(visitor));
+        superTypeParams.forEach(type -> {
+            debug("superTypeParams", type, type.type);
+            type.accept(visitor);
+        });
     }
 
     private void rewriteBasicMethod(JCTree.JCMethodDecl method) {
@@ -866,7 +890,25 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 );
             }
 
+            // Here we should also check that the method is not in an inner class to really only target main methods, but
+            // generate the flag for a wrong method is not a problem, so we can ignore it for now
+            var isMain = method.sym.owner.hasNewGenerics()
+                && method.sym.isStatic()
+                && !method.sym.isPrivate() // public || package-private || protected
+                && names.main.equals(method.sym.name)
+                && !currentClass.flatName().toString().equals("com.sun.tools.javac.launcher.SourceLauncher");
             parameterizedMethodCallVisitor.visitMethod(method);
+            if (isMain) {
+                var end = mainEndReached(-1);
+                end.args = List.of(mainId(method.pos));
+                List<JCTree.JCStatement> finalList = List.of(make.Exec(end));
+
+                var start = mainStartReached(-1);
+                start.args = List.of(mainId(method.pos));
+                finalList = finalList.prependList(method.body.stats);
+                finalList = finalList.prepend(make.Exec(start));
+                method.body.stats = finalList;
+            }
         } finally {
             inScopeBaseTypeParams = oldInScopeBaseTypeParams;
         }
@@ -1036,7 +1078,8 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 return;
             } else { // otherwise, we replace the cast
                 call = checkCastInvocation(-1);
-                call.args = List.of(tree.expr, args, checkCastLocation(tree.pos));
+                var target = checkTarget(tree.clazz.type.tsym.type);
+                call.args = List.of(tree.expr, args, checkCastLocation(tree.pos), make.Literal(CheckLocationKind.CAST.toString()), target);
             }
             tree.expr = call;
         }
@@ -1053,8 +1096,30 @@ public final class TransParameterizedTypes extends TreeTranslator {
             tree.scopeTypeParameters = inScopeBaseTypeParams;
             tree.typeMappingScope = typeMappingScope;
             var oldReturnType = currentReturnType;
+            var addedCheck = false;
             try {
                 currentReturnType = tree.getDescriptorType(types).asMethodType().getReturnType();
+                if (shouldProcessCurrentClass && doGenerateVerification) {
+                    // we first change the body to a block if it is an expression
+                    JCTree.JCExpression expr = tree.body instanceof JCTree.JCExpression ex ? ex : null;
+
+                    if (expr != null) {
+                        var stmt = syms.voidType.equals(types.findDescriptorType(tree.type).getReturnType())
+                            ? make.Exec(expr)
+                            : make.Return(expr);
+                        tree.body = make.at(tree.body.pos).Block(0L, List.of(stmt));
+                    }
+
+                    var body = (JCTree.JCBlock) tree.body;
+                    var oldSize = body.stats.size();
+                    body.stats = addParameterizedArgumentTypeChecking(tree.params, tree.pos, body.stats);
+                    addedCheck = body.stats.size() > oldSize;
+
+                    if (!addedCheck && expr != null) {
+                        // if we did not add any check, we can remove the block
+                        tree.body = expr;
+                    }
+                }
                 super.visitLambda(tree);
             } finally {
                 currentReturnType = oldReturnType;
@@ -1079,6 +1144,121 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
         }
 
+        @Override
+        public void visitAssign(JCTree.JCAssign tree) {
+            super.visitAssign(tree);
+            if (
+                !shouldProcessCurrentClass
+                    || (tree.rhs.hasTag(JCTree.Tag.LITERAL)
+                    && tree.rhs.type.hasTag(TypeTag.BOT))
+            ) return;
+
+            var actualLhs = TreeInfo.skipParens(tree.lhs);
+            var sym = TreeInfo.symbol(actualLhs);
+            // if the assign is not on a field or an array, we have nothing to do
+            if (actualLhs.hasTag(JCTree.Tag.INDEXED)) {
+                result = basicAssign(tree, actualLhs.type);
+            } else if (sym != null && sym.owner.kind == Kinds.Kind.TYP) {
+                result = putFieldAssign(tree, actualLhs, sym);
+            }
+            // no need to else because the super has already set result to tree
+        }
+
+        private JCTree.JCAssign basicAssign(JCTree.JCAssign base, Type lhsType) {
+            if (!shouldBeChecked(lhsType)) return base;
+
+            var call = checkCastInvocation(-1);
+            var args = generateArgs(null, lhsType);
+            call.args = List.of(
+                base.rhs,
+                args,
+                checkCastLocation(base.pos),
+                make.Literal(CheckLocationKind.STORAGE.toString()),
+                checkTarget(lhsType.tsym.type)
+            );
+
+            base.rhs = call;
+            return base;
+        }
+
+        private JCTree putFieldAssign(JCTree.JCAssign base, JCTree lhs, Symbol lhsSym) {
+            if (!shouldBeChecked(lhsSym.type)) return base;
+            // if the field is static or if it is in the current class, we can treat it as a basic assign
+            if (lhsSym.owner == currentClass || lhsSym.isStatic()) return basicAssign(base, lhs.type);
+
+            externalFieldOwner = lhsSym.owner;
+            try {
+                return switch (lhs) {
+                    case JCTree.JCFieldAccess fieldAccess -> {
+                        if (!TreeInfo.skipParens(fieldAccess.selected).hasTag(JCTree.Tag.APPLY)) {
+                            if (
+//                                base.rhs.hasTag(JCTree.Tag.SELECT)
+//                                    || base.rhs.hasTag(JCTree.Tag.LITERAL)
+                                (base.rhs.hasTag(JCTree.Tag.NEWCLASS) && currentClass.packge().fullname.toString().startsWith("java.util.concurrent"))
+//                                    || base.rhs.hasTag(JCTree.Tag.NEWARRAY)
+//                                    || base.rhs.hasTag(JCTree.Tag.TYPECAST)
+                                    || (base.rhs.hasTag(JCTree.Tag.IDENT) && currentClass.packge().fullname.toString().startsWith("java.util.concurrent"))
+//                                    || base.rhs.hasTag(JCTree.Tag.APPLY)
+                            ) {
+//                                if (base.rhs.hasTag(JCTree.Tag.IDENT)) {
+//                                    debug(base.rhs.getTag(), currentClass, base);
+//                                }
+                                yield base;
+                            }
+                            externalSymbolAccess = fieldAccess.selected;
+                            yield basicAssign(base, lhsSym.type);
+                        }
+
+                        var isParameterizedByClass = false;
+                        for (var typeArgument : lhsSym.type.getTypeArguments()) {
+                            // if the type is parameterized, we must use the type parameters of its owner
+                            if (typeArgument.hasTag(TypeTag.TYPEVAR) || typeArgument.hasTag(TypeTag.WILDCARD)) {
+                                isParameterizedByClass = true;
+                                break;
+                            }
+                        }
+                        if (!isParameterizedByClass) {
+                            externalSymbolAccess = fieldAccess.selected;
+                            yield basicAssign(base, lhs.type);
+                        }
+
+                        // if the owner of the field is the return of a function, we need to create a local variable to
+                        // store it. To do so, we change the whole assign to a block.
+                        var r = make.Block(0L, List.nil());
+                        var ownerSymbolOwner = enclosingMethod != null ?
+                            enclosingMethod :
+                            new Symbol.MethodSymbol(
+                                0L,
+                                names.empty,
+                                null,
+                                currentClass
+                            );
+                        var ownerSymbol = new Symbol.VarSymbol(
+                            0L,
+                            names.fromString("$owner"),
+                            fieldAccess.selected.type,
+                            ownerSymbolOwner
+                        );
+                        var ownerDecl = make.VarDef(ownerSymbol, fieldAccess.selected);
+                        externalSymbolAccess = make.Ident(ownerSymbol); // we set an identified to the owner as the access
+
+                        var actualAssign = basicAssign(base, lhsSym.type.tsym.type);
+                        actualAssign.lhs = make.Select(make.Ident(ownerSymbol), lhsSym);
+                        r.stats = List.of(ownerDecl, make.Exec(actualAssign));
+                        yield r;
+                    }
+                    case JCTree.JCIdent ignored -> {
+                        externalSymbolAccess = make.This(currentClass.type); // not the correct type but we don't really care
+                        yield basicAssign(base, lhsSym.type);
+                    }
+                    default -> throw new AssertionError("Unexpected assign lhs: " + lhs);
+                };
+            } finally {
+                externalFieldOwner = null;
+                externalSymbolAccess = null;
+            }
+        }
+
         private Symbol useBackwardCompatibility(Symbol.MethodSymbol current, Types.ArgPosition positions) {
             var newSym = current.clone(current.owner);
             newSym.type = copyTypeAndRemoveTypeArgIfNeeded(newSym.type, positions);
@@ -1087,16 +1267,41 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         @Override
         public void visitReturn(JCTree.JCReturn tree) {
-            super.visitReturn(tree);
-            if (!doGenerateVerification || !shouldProcessCurrentClass || currentReturnType == null || !shouldBeChecked(
-                currentReturnType)) return;
             if (tree.expr == null) {
+                result = tree;
+                return;
+            }
+            var expr = tree.expr;
+
+            var r = this.<JCTree>translate(tree.expr);
+            var isBlock = r.hasTag(JCTree.Tag.BLOCK);
+            if (isBlock) {
+                var block = (JCTree.JCBlock) r;
+                var assign = (JCTree.JCExpressionStatement) block.stats.tail.head;
+                expr = assign.expr;
+            }
+            if (doGenerateVerification && shouldProcessCurrentClass && currentReturnType != null && shouldBeChecked(
+                currentReturnType)) {
+                expr = basicReturn(tree.pos, expr);
+                tree.expr = expr;
+            }
+            if (isBlock) {
+                var block = (JCTree.JCBlock) r;
+                var decl = block.stats.head;
+                result = make.Block(0L, List.of(decl, make.Return(expr).setType(tree.type)));
+            } else {
+                result = tree;
+            }
+        }
+
+        private JCTree.JCExpression basicReturn(int pos, JCTree.JCExpression expr) {
+            if (expr == null) {
                 throw new AssertionError("Should not be null " + currentReturnType);
             }
             var call = checkCastInvocation(-1);
             var args = generateArgs(null, currentReturnType);
-            call.args = List.of(tree.expr, args, checkCastLocation(tree.pos));
-            tree.expr = call;
+            call.args = List.of(expr, args, checkCastLocation(pos), make.Literal(CheckLocationKind.EXIT.toString()), checkTarget(currentReturnType.tsym.type));
+            return call;
         }
 
         public void visitField(JCTree.JCVariableDecl field) {
@@ -1115,6 +1320,17 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
         }
 
+        @Override
+        public void visitExec(JCTree.JCExpressionStatement tree) {
+            JCTree r = translate(tree.expr);
+            if (!r.hasTag(JCTree.Tag.BLOCK)) {
+                tree.expr = (JCTree.JCExpression) r;
+                result = tree;
+            } else {
+                result = r;
+            }
+        }
+
         public void visitMethod(JCTree.JCMethodDecl method) {
             if (method.body == null) { // abstract method
                 return;
@@ -1127,7 +1343,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 enclosingMethod = method.sym;
                 currentReturnType = method.sym.type.asMethodType().restype;
                 if (shouldProcessCurrentClass && doGenerateVerification) {
-                    addParameterizedArgumentTypeChecking(method);
+                    method.body.stats = addParameterizedArgumentTypeChecking(method.params, method.pos, method.body.stats);
                 }
                 method.body.accept(this);
             } finally {
@@ -1165,9 +1381,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
             return true;
         }
 
-        private void addParameterizedArgumentTypeChecking(JCTree.JCMethodDecl method) {
-            var instructions = method.body.stats;
-            for (JCTree.JCVariableDecl param : method.params.reverse()) {
+        private List<JCTree.JCStatement> addParameterizedArgumentTypeChecking(
+            List<JCTree.JCVariableDecl> params,
+            int pos,
+            List<JCTree.JCStatement> body
+        ) {
+            var instructions = body;
+            for (JCTree.JCVariableDecl param : params.reverse()) {
                 // we check parameterized type and type vars
                 if (!shouldBeChecked(param.type)) {
                     continue;
@@ -1175,11 +1395,11 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
                 var arg = generateArgs(null, param.type);
                 var cast = checkCastInvocation(-1);
-                cast.args = List.of(make.Ident(param.sym), arg, checkCastLocation(method.pos));
+                cast.args = List.of(make.Ident(param.sym), arg, checkCastLocation(pos), make.Literal(CheckLocationKind.ENTRY.toString()), checkTarget(param.type.tsym.type));
 
                 instructions = instructions.prepend(make.Exec(cast));
             }
-            method.body.stats = instructions;
+            return instructions;
         }
 
         private boolean shouldBeChecked(Type type) {
@@ -1188,24 +1408,54 @@ public final class TransParameterizedTypes extends TreeTranslator {
             return type instanceof Type.TypeVar || type.isParameterized();
         }
 
+        /**
+         * This method assumes that the type has new generics, should be checked and if it is a class it is assumed to
+         * be a parameterized type.
+         */
+        private JCTree.JCExpression checkTarget(Type type) {
+            return make.Literal(target(type).toString());
+        }
+
+        private CheckTarget target(Type type) {
+            return switch (type) {
+                case Type.TypeVar ignored -> CheckTarget.TYPE_PARAMETER;
+                case Type.ClassType ignored -> CheckTarget.PARAMETERIZED_TYPE;
+                case Type.ArrayType arrayType -> target(arrayType.elemtype);
+                case null, default -> throw new AssertionError("Unexpected type: " + type);
+            };
+        }
+
         private JCTree.JCLiteral checkCastLocation(int pos) {
             var line = env.toplevel.lineMap.getLineNumber(pos);
             // id!module/flatname.method(sourceFileName.java:line)
             var module = currentClass.packge().modle;
             var stringLocation = locationCount++ +
-                                 "!" +
-                                 (module != null && module.name != null && !module.name.isEmpty() ? (module.name + "/") : "") +
-                                 currentClass.flatName() +
-                                 "." +
-                                 (enclosingMethod != null ? enclosingMethod.name : names.clinit) +
-                                 "(" +
-                                 env.enclClass.name +
-                                 ".java:" +
-                                 line +
-                                 ")";
+                "!" +
+                (module != null && module.name != null && !module.name.isEmpty() ? (module.name + "/") : "") +
+                currentClass.flatName() +
+                "." +
+                (enclosingMethod != null ? enclosingMethod.name : names.clinit) +
+                "(" +
+                env.enclClass.name +
+                ".java:" +
+                line +
+                ")";
             return make.Literal(stringLocation);
         }
 
+
+    }
+
+    private JCTree.JCLiteral mainId(int pos) {
+        var line = env.toplevel.lineMap.getLineNumber(pos);
+        var module = currentClass.packge().modle;
+        var stringLocation =
+            (module != null && module.name != null && !module.name.isEmpty() ? (module.name + "/") : "") +
+                currentClass.flatName() +
+                "(" +
+                line +
+                ")";
+        return make.Literal(stringLocation);
     }
 
     private JCTree.JCMethodInvocation basicMethodArgConstruction(
@@ -1236,10 +1486,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
                             null
                         );
                     }
-                    buffer.add(res);
+                    buffer.prepend(res);
                 });
             } else { // special case when rawtypes are involved (seems to be the reason for the mapping being null so far)
-                sym.type.getTypeArguments().forEach(t -> buffer.add(t.getUpperBound()));
+                sym.type.getTypeArguments().forEach(t -> buffer.prepend(t.getUpperBound()));
             }
             var list = buffer.toList();
             call.args = argTypeParam(list);
@@ -1340,6 +1590,27 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return methodCall;
     }
 
+    private JCTree.JCMethodInvocation mainStartReached(int pos) {
+        return externalMethodInvocation(
+            pos,
+            "mainStartReached",
+            syms.typeOperationsType,
+            syms.voidType,
+            List.of(syms.stringType)
+        );
+    }
+
+    private JCTree.JCMethodInvocation mainEndReached(int pos) {
+        return externalMethodInvocation(
+            pos,
+            "mainEndReached",
+            syms.typeOperationsType,
+            syms.voidType,
+            List.of(syms.stringType)
+        );
+    }
+
+
     private JCTree.JCMethodInvocation rawTypeOfInvocation(int pos) {
         return rawTypeOfInvocation(pos, true);
     }
@@ -1426,7 +1697,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             "checkCast",
             syms.typeOperationsType,
             syms.objectType,
-            List.of(syms.objectType, syms.argBaseType, syms.stringType)
+            List.of(syms.objectType, syms.argBaseType, syms.stringType, syms.stringType, syms.stringType)
         );
     }
     //endregion
@@ -1600,6 +1871,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
             case Type.CapturedType capturedType -> {
                 var bound = capturedType.getUpperBound();
+                if (capturedType.wildcard.isUnbound()) {
+                    var call = wildcardTypeOfInvocation(false, -1);
+                    var c = classTypeOfInvocation(-1, true);
+                    c.args = List.of(make.ClassLiteral(syms.objectType));
+                    call.args = List.of(c);
+                    yield call;
+                }
                 if (bound.equals(previous)) { // to avoid infinite recursion on recursive types
                     var call = classTypeOfInvocation(-1, true);
                     call.args = List.of(make.ClassLiteral(syms.objectType));
@@ -1700,11 +1978,31 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
         }
 
-        if (foundScope == null) {
+        if (foundScope != null) {
+            return foundScope.argAccessFactory().apply(foundIndex);
+        }
+
+        if (externalFieldOwner == null) {
             throw new AssertionError("Could not find type var " + typeVar + " in class " + currentClass + " with the following scope " + inScopeBaseTypeParams);
         }
 
-        return foundScope.argAccessFactory().apply(foundIndex);
+        var argAccessingCall = externalMethodInvocation(
+            -1,
+            "getArg",
+            syms.typeArgUtils,
+            syms.argBaseType,
+            List.of(syms.objectType, syms.classType)
+        );
+        argAccessingCall.args = List.of(
+            externalSymbolAccess,
+            make.ClassLiteral((Symbol.ClassSymbol) externalFieldOwner)
+        );
+
+        var index = typeVar.owner.type.getTypeArguments().stream().map(t -> t.tsym).toList().indexOf(typeVar);
+        // then a second getArg on the retrieved Arg to get the actual type parameter value
+        var getInnerArgCall = getGetArgInvocation(-1);
+        getInnerArgCall.args = List.of(argAccessingCall, make.Literal(index));
+        return getInnerArgCall;
     }
 
     /**
@@ -1869,7 +2167,6 @@ public final class TransParameterizedTypes extends TreeTranslator {
         return methods;
     }
 
-
     private void addInterfaceOpenMethods(ArrayList<Symbol.MethodSymbol> list, Type interfce) {
         addOpenMethods(list, interfce);
         types.interfaces(interfce).forEach(i -> addInterfaceOpenMethods(list, i));
@@ -1880,10 +2177,10 @@ public final class TransParameterizedTypes extends TreeTranslator {
             .getSymbols(
                 s ->
                     s.kind == Kinds.Kind.MTH
-                    && s.owner.hasNewGenerics()
-                    && !s.isFinal()
-                    && !s.isPrivate()
-                    && s.type.getTypeArguments().nonEmpty(),
+                        && s.owner.hasNewGenerics()
+                        && !s.isFinal()
+                        && !s.isPrivate()
+                        && s.type.getTypeArguments().nonEmpty(),
                 Scope.LookupKind.NON_RECURSIVE
             )
             .forEach(s -> list.add((Symbol.MethodSymbol) s));
@@ -1925,7 +2222,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
         var sym = baseMethod.sym;
         var symbolCopy = sym.clone(sym.owner);
-        symbolCopy.flags_field |= Flags.SYNTHETIC | Flags.NEW_GENERICS;
+        symbolCopy.flags_field |= Flags.SYNTHETIC;// | Flags.NEW_GENERICS;
         symbolCopy.params = removeAtArgPositions(sym.params, positions);
         symbolCopy.extraParams = sym.extraParams;
         symbolCopy.capturedLocals = sym.capturedLocals;

@@ -25,7 +25,7 @@ public final class ArgList implements RandomAccess {
         var dest = new Arg[args.length];
         var i = 0;
         for (Arg arg : args) {
-            Utils.requireNonNull(arg);
+//            Utils.requireNonNull(arg);
             dest[i++] = arg;
         }
         return new ArgList(dest);

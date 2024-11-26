@@ -336,8 +336,13 @@ public abstract class AtomicReferenceFieldUpdater<T,V> {
                         }
                     });
                 modifiers = field.getModifiers();
-                sun.reflect.misc.ReflectUtil.ensureMemberAccess(
-                    caller, tclass, null, modifiers);
+                try {
+                    sun.reflect.misc.ReflectUtil.ensureMemberAccess(
+                        caller, tclass, null, modifiers);
+                } catch (Throwable t) {
+                    System.out.println("tclass: " + tclass + ", caller: " + caller + ", modifiers: " + modifiers);
+                    throw t;
+                }
                 ClassLoader cl = tclass.getClassLoader();
                 ClassLoader ccl = caller.getClassLoader();
                 if ((ccl != null) && (ccl != cl) &&

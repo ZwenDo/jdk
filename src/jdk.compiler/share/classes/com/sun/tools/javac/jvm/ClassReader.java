@@ -942,7 +942,7 @@ public class ClassReader {
                 }
             },
 
-            new AttributeReader(names.NewGenerics, V65, CLASS_OR_MEMBER_ATTRIBUTE) {
+            new AttributeReader(names.NewGenerics, V65, CLASS_ATTRIBUTE) {
                 protected void read(Symbol sym, int attrLen) {
                     sym.flags_field |= NEW_GENERICS;
                 }

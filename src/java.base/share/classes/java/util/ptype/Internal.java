@@ -12,9 +12,10 @@ import java.util.function.Function;
 
 final class Internal {
 
-    private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
-
-    private static final WeakHashMap<Class<?>, ArgHandle> ARG_HANDLE_CACHE = new WeakHashMap<>();
+    private static final class Holder {
+        private static final WeakHashMap<Class<?>, ArgHandle> ARG_HANDLE_CACHE = new WeakHashMap<>();
+        private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
+    }
 
     private static final ClassValue<ArgList> STATIC_ARG_CACHE = new ClassValue<>() {
         @Override
@@ -34,19 +35,19 @@ final class Internal {
         }
     };
 
-//    private static final WeakHashMap<Object, ArrayType> ARRAY_TYPE_STORAGE = new WeakHashMap<>();
+    private static final WeakHashMap<Object, ArrayType> ARRAY_TYPE_STORAGE = new WeakHashMap<>();
 
     public static MethodHandles.Lookup lookup() {
-        return LOOKUP;
+        return Holder.LOOKUP;
     }
 
     public static ArgHandle argHandle(Class<?> type) {
         Utils.requireNonNull(type);
-        synchronized (ARG_HANDLE_CACHE) {
-            var res = ARG_HANDLE_CACHE.get(type);
+        synchronized (Holder.ARG_HANDLE_CACHE) {
+            var res = Holder.ARG_HANDLE_CACHE.get(type);
             if (res == null) {
                 res = ArgHandle.of(type);
-                ARG_HANDLE_CACHE.put(type, res);
+                Holder.ARG_HANDLE_CACHE.put(type, res);
             }
             return res;
         }
@@ -64,15 +65,16 @@ final class Internal {
         if (!array.getClass().isArray()) {
             throw new IllegalArgumentException("Object " + array + " is not an array");
         }
-        return ArgOptional.empty();
-//        synchronized (ARRAY_TYPE_STORAGE) {
-//            return ArgOptional.ofNullable(ARRAY_TYPE_STORAGE.get(array));
-//        }
+//        return ArgOptional.empty();
+        synchronized (ARRAY_TYPE_STORAGE) {
+            return ArgOptional.ofNullable(ARRAY_TYPE_STORAGE.get(array));
+        }
     }
 
-    public static RawOptional outerThis(Object obj) {
+    public static RawOptional outerThis(Object obj, Class<?> expectedClass) {
         Utils.requireNonNull(obj);
-        var handle = outerFieldGetter(obj.getClass());
+        Utils.requireNonNull(expectedClass);
+        var handle = outerFieldGetter(expectedClass);
         if (handle == null) {
             return RawOptional.empty();
         }
@@ -93,9 +95,25 @@ final class Internal {
         var index = computeIndex(enclosingClass);
 
         try {
-            return LOOKUP.findGetter(type, "this$" + index, enclosingClass);
+            return Holder.LOOKUP.findGetter(type, "this$" + index, enclosingClass);
         } catch (NoSuchFieldException | IllegalAccessException e) {
             return null;
+        }
+    }
+
+    public static void addArrayTypeArg(Object array, ArrayType arrayType) {
+        Utils.requireNonNull(array);
+        Utils.requireNonNull(arrayType);
+        if (!array.getClass().isArray()) {
+            throw new IllegalArgumentException("Object " + array + " is not an array");
+        }
+        synchronized (ARRAY_TYPE_STORAGE) {
+            ARRAY_TYPE_STORAGE.compute(array, (key, old) -> {
+                if (old != null) {
+                    throw new IllegalArgumentException("Array " + key + " already cached");
+                }
+                return arrayType;
+            });
         }
     }
 
@@ -129,22 +147,6 @@ final class Internal {
         return next;
     }
 
-    public static void addArrayTypeArg(Object array, ArrayType arrayType) {
-        Utils.requireNonNull(array);
-        Utils.requireNonNull(arrayType);
-        if (!array.getClass().isArray()) {
-            throw new IllegalArgumentException("Object " + array + " is not an array");
-        }
-//        synchronized (ARRAY_TYPE_STORAGE) {
-//            ARRAY_TYPE_STORAGE.compute(array, (key, old) -> {
-//                if (old != null) {
-//                    throw new IllegalArgumentException("Array " + key + " already cached");
-//                }
-//                return arrayType;
-//            });
-//        }
-    }
-
     public static Class<?> findClass(String internalName) {
         Objects.requireNonNull(internalName);
         try {
@@ -166,7 +168,7 @@ final class Internal {
 
             var unsafe = Unsafe.getUnsafe();
             var allowedModesOffset = unsafe.objectFieldOffset(LookupMock.class.getDeclaredField("allowedModes"));
-            unsafe.getAndSetInt(LOOKUP, allowedModesOffset, -1);
+            unsafe.getAndSetInt(Holder.LOOKUP, allowedModesOffset, -1);
         } catch (NoSuchFieldException e) {
             throw new AssertionError(e);
         }

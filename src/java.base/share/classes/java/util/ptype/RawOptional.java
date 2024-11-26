@@ -32,4 +32,10 @@ final class RawOptional {
         return EMPTY;
     }
 
+    @Override
+    public String toString() {
+        return value != null
+            ? "RawOptional(" + value + ")"
+            : "RawOptional.empty";
+    }
 }

@@ -43,12 +43,12 @@ public final class TypeArgUtils {
      * @return the {@link Arg}
      */
     public static Arg getArg(Object concrete, Class<?> supertype) {
+        if (!VM.isBooted()) return null;
         Utils.requireNonNull(concrete);
         Utils.requireNonNull(supertype);
         var arg = Internal.argHandle(concrete.getClass())
             .arg(concrete, supertype);
         if (arg.isEmpty()) {
-            System.out.println(Arrays.toString(concrete.getClass().getDeclaredFields()));
             throw new IllegalArgumentException("Object " + concrete + " (" + concrete.getClass() + ") is not an instance of " + supertype);
         }
         return arg.get();
@@ -62,7 +62,7 @@ public final class TypeArgUtils {
      * @return the {@link Arg}
      */
     public static Arg getArg(Arg concrete, int... indices) {
-        Utils.requireNonNull(concrete);
+        if (concrete == null) return null;
         if (indices.length == 0) {
             throw new IllegalArgumentException("indices.length == 0");
         }
@@ -129,7 +129,7 @@ public final class TypeArgUtils {
         }
         if (concrete instanceof RawType rt) {
             var arg = rawTypeArg(rt.type());
-            return getArgInternal(arg, currentIndex + 1, indices);
+            return getArgInternal(arg, currentIndex, indices);
         } else if (concrete instanceof ArrayType a) {
             return getArgInternal(a.componentType(), currentIndex, indices);
         } else if (concrete instanceof ParameterizedType p) {
@@ -147,10 +147,6 @@ public final class TypeArgUtils {
             throw new IllegalArgumentException("ClassType has no type args");
         }
         throw new IllegalArgumentException(concrete.getClass().getName());
-    }
-
-    private TypeArgUtils() {
-        throw new AssertionError();
     }
 
     private static Arg rawTypeArg(Class<?> clazz) {
@@ -174,4 +170,8 @@ public final class TypeArgUtils {
         return ClassType.of(Object.class);
     }
 
+
+    private TypeArgUtils() {
+        throw new AssertionError();
+    }
 }
