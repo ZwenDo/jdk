@@ -28,7 +28,7 @@ public final class TypeOperations {
      * @return the cast object
      */
     public static Object checkCast(Object obj, Arg expected, String location, String kind, String target) {
-        if (!VM.isBooted() || !fromMain) return obj;
+        if (!VM.isBooted()) return obj;
         Utils.requireNonNull(expected);
         Utils.requireNonNull(location);
         Utils.requireNonNull(kind);
@@ -74,6 +74,7 @@ public final class TypeOperations {
         if (mainId != null) return;
         mainId = id;
         fromMain = true;
+        System.out.println("MAIN START");
     }
 
     public static void mainEndReached(String id) {
@@ -81,6 +82,7 @@ public final class TypeOperations {
         if (mainId == null) throw new AssertionError();
         if (!mainId.equals(id)) return;
         fromMain = false;
+        System.out.println("MAIN END");
     }
 
     private static boolean shouldPerform(String strKind, String strTarget) {

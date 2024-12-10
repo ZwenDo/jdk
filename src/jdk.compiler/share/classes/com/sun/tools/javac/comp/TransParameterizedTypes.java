@@ -33,8 +33,6 @@ import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.IntFunction;
-import java.util.ptype.CheckLocationKind;
-import java.util.ptype.CheckTarget;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -196,6 +194,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
         var fullName = clazz.fullname.toString();
         var ignored = packageName.startsWith("java.lang")
             || packageName.startsWith("jdk.internal")
+            || packageName.startsWith("java.security")
             || "java.util.WeakHashMap".equals(fullName)
             || (clazz.owner instanceof Symbol.ClassSymbol && !clazz.owner.hasNewGenerics())
             || packageName.startsWith("sun.reflect.generics");
@@ -261,10 +260,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 field.snd.mods.flags |= Flags.SYNTHETIC;
                 field.snd.sym.flags_field |= Flags.SYNTHETIC;
             });
+            var buffer = new ListBuffer<JCTree>();
+            buffer.addAll(tree.defs);
             generatedDecl.forEach(pair -> {
                 tree.sym.members_field.enter(pair.snd);
-                tree.defs = tree.defs.prepend(pair.fst);
+                buffer.append(pair.fst);
             });
+            tree.defs = buffer.toList();
         } finally {
             currentClass = oldClass;
             currentClassTree = oldClassTree;
@@ -1079,7 +1081,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             } else { // otherwise, we replace the cast
                 call = checkCastInvocation(-1);
                 var target = checkTarget(tree.clazz.type.tsym.type);
-                call.args = List.of(tree.expr, args, checkCastLocation(tree.pos), make.Literal(CheckLocationKind.CAST.toString()), target);
+                call.args = List.of(tree.expr, args, checkCastLocation(tree.pos), make.Literal("CAST"), target);
             }
             tree.expr = call;
         }
@@ -1173,7 +1175,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
                 base.rhs,
                 args,
                 checkCastLocation(base.pos),
-                make.Literal(CheckLocationKind.STORAGE.toString()),
+                make.Literal("STORAGE"),
                 checkTarget(lhsType.tsym.type)
             );
 
@@ -1300,7 +1302,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
             }
             var call = checkCastInvocation(-1);
             var args = generateArgs(null, currentReturnType);
-            call.args = List.of(expr, args, checkCastLocation(pos), make.Literal(CheckLocationKind.EXIT.toString()), checkTarget(currentReturnType.tsym.type));
+            call.args = List.of(expr, args, checkCastLocation(pos), make.Literal("EXIT"), checkTarget(currentReturnType.tsym.type));
             return call;
         }
 
@@ -1395,7 +1397,7 @@ public final class TransParameterizedTypes extends TreeTranslator {
 
                 var arg = generateArgs(null, param.type);
                 var cast = checkCastInvocation(-1);
-                cast.args = List.of(make.Ident(param.sym), arg, checkCastLocation(pos), make.Literal(CheckLocationKind.ENTRY.toString()), checkTarget(param.type.tsym.type));
+                cast.args = List.of(make.Ident(param.sym), arg, checkCastLocation(pos), make.Literal("ENTRY"), checkTarget(param.type.tsym.type));
 
                 instructions = instructions.prepend(make.Exec(cast));
             }
@@ -1413,13 +1415,13 @@ public final class TransParameterizedTypes extends TreeTranslator {
          * be a parameterized type.
          */
         private JCTree.JCExpression checkTarget(Type type) {
-            return make.Literal(target(type).toString());
+            return make.Literal(target(type));
         }
 
-        private CheckTarget target(Type type) {
+        private String target(Type type) {
             return switch (type) {
-                case Type.TypeVar ignored -> CheckTarget.TYPE_PARAMETER;
-                case Type.ClassType ignored -> CheckTarget.PARAMETERIZED_TYPE;
+                case Type.TypeVar ignored -> "TYPE_PARAMETER";
+                case Type.ClassType ignored -> "PARAMETERIZED_TYPE";
                 case Type.ArrayType arrayType -> target(arrayType.elemtype);
                 case null, default -> throw new AssertionError("Unexpected type: " + type);
             };
