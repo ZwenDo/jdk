@@ -30,7 +30,6 @@ import java.lang.annotation.Inherited;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -438,6 +437,14 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
 
     public boolean isImplicit() {
         return (flags_field & IMPLICIT_CLASS) != 0;
+    }
+
+    public boolean newGenericsExcluded() {
+        // required because Gen uses nullCheck unary op, meaning we need to check if Objects has NewGenerics flag.
+        // Otherwise, if the class has not been used anywhere, it will not have been completed and the flag will not be
+        // set.
+        complete();
+        return (flags_field & NEW_GENERICS_EXCLUDED) != 0;
     }
 
    /** Is this symbol declared (directly or indirectly) local

@@ -123,6 +123,7 @@ module java.base {
     exports java.util.spi;
     exports java.util.stream;
     exports java.util.zip;
+    exports java.util.ptype;
     exports javax.crypto;
     exports javax.crypto.interfaces;
     exports javax.crypto.spec;
