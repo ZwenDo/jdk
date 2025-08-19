@@ -1,19 +1,37 @@
 package com.sun.tools.javac.comp;
 
-import com.sun.tools.javac.code.*;
+import com.sun.tools.javac.code.BoundKind;
+import com.sun.tools.javac.code.Flags;
+import com.sun.tools.javac.code.Symbol;
+import com.sun.tools.javac.code.Symtab;
+import com.sun.tools.javac.code.Type;
+import com.sun.tools.javac.code.TypeTag;
+import com.sun.tools.javac.code.Types;
 import com.sun.tools.javac.jvm.ByteCodes;
 import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeInfo;
 import com.sun.tools.javac.tree.TreeMaker;
 import com.sun.tools.javac.tree.TreeTranslator;
-import com.sun.tools.javac.util.*;
+import com.sun.tools.javac.util.Context;
 import com.sun.tools.javac.util.List;
+import com.sun.tools.javac.util.ListBuffer;
+import com.sun.tools.javac.util.Log;
+import com.sun.tools.javac.util.Name;
+import com.sun.tools.javac.util.Names;
+import com.sun.tools.javac.util.Pair;
 
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.type.TypeKind;
-import java.util.*;
-import java.util.ptype.ClassType;
-import java.util.ptype.RawType;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -49,7 +67,7 @@ public final class TransParameterizedTypes {
      * Stack containing the different type args declared at any point in the code. It allows when a generic type is
      * required, to find where it comes from and generate access to it.
      */
-    private List<TypeParameterGroup> typeParameterScopes;
+    private ParameterizedScope typeParameterScopes;
 
     /**
      * Stack containing the mappings between a symbol and its type. It is used to map type variables from transitive
@@ -340,6 +358,42 @@ public final class TransParameterizedTypes {
             syms.constructorTypeArgsType.tsym
         );
 
+        public final Symbol.MethodSymbol pushMethodArgMethod = new Symbol.MethodSymbol(
+            PUBLIC | STATIC,
+            names.fromString("push"),
+            new Type.MethodType(
+                List.of(syms.methodTypeArgs, syms.classType),
+                syms.voidObjectType,
+                List.nil(),
+                syms.methodClass
+            ),
+            syms.argStackType.tsym
+        );
+
+        public final Symbol.MethodSymbol pusArgMethod = new Symbol.MethodSymbol(
+            PUBLIC | STATIC,
+            names.fromString("pushArg"),
+            new Type.MethodType(
+                List.of(syms.argBaseType),
+                syms.voidObjectType,
+                List.nil(),
+                syms.methodClass
+            ),
+            syms.argStackType.tsym
+        );
+
+        public final Symbol.MethodSymbol pusArgAndConstructorArgMethod = new Symbol.MethodSymbol(
+            PUBLIC | STATIC,
+            names.fromString("pushArg"),
+            new Type.MethodType(
+                List.of(syms.argBaseType, syms.constructorTypeArgsType),
+                syms.voidObjectType,
+                List.nil(),
+                syms.methodClass
+            ),
+            syms.argStackType.tsym
+        );
+
         public final Symbol.OperatorSymbol objectEqOperator = operators
             .lookupBinaryOp(o -> o.opcode == ByteCodes.if_acmpeq);
 
@@ -357,7 +411,7 @@ public final class TransParameterizedTypes {
         resolve = Resolve.instance(context);
         types = Types.instance(context);
         operators = Operators.instance(context);
-        typeParameterScopes = List.nil();
+        typeParameterScopes = new ParameterizedScope();
         typeMappingScope = List.nil();
         argLiteralGenerator = new ArgLiteralGenerator();
         constantHolder = new ConstantHolder();
@@ -381,7 +435,6 @@ public final class TransParameterizedTypes {
         return packageName.startsWith("java.lang")
 //            || packageName.startsWith("java.util")
             || packageName.startsWith("java.util.ptype")
-            || "java.util.Objects".equals(fullName)
             || packageName.startsWith("java.util.concurrent")
             || packageName.startsWith("jdk.internal")
             || packageName.startsWith("java.security")
@@ -425,12 +478,13 @@ public final class TransParameterizedTypes {
             inlineAndBlockDecls = new ArrayList<>();
             // static classes cannot access the outer class type parameters, so we remove them
             if (tree.sym.isStatic()) {
-                typeParameterScopes = List.nil();
+                typeParameterScopes = new ParameterizedScope();
                 typeMappingScope = List.nil();
             }
+            typeParameterScopes.prepareClass();
 
             if (isParameterized(tree.sym)) {
-                pushGroup(TypeParameterGroup.clazz(getTypeArguments(tree.sym)));
+                typeParameterScopes.pushClassGroup(tree.sym, getTypeArguments(tree.sym));
                 // for classes, we prepare the list of supertypes to init in the constructor
                 if (!tree.sym.isInterface()) {
                     superTypes = prepareScopes(tree);
@@ -439,6 +493,7 @@ public final class TransParameterizedTypes {
 
             rewriteDefs(tree);
         } finally {
+            typeParameterScopes.clearClass();
             currentClass = oldCurrentClassTree != null ? oldCurrentClassTree.sym : null;
             currentClassTree = oldCurrentClassTree;
             inlineAndBlockDecls = oldInlineAndBlockDecls;
@@ -503,7 +558,7 @@ public final class TransParameterizedTypes {
             var superType = currentSymbol.getSuperclass();
             var superTypeSymbol = superType.tsym;
 
-            if (superTypeSymbol != null && superTypeSymbol.newGenericsExcluded()) {
+            if (superTypeSymbol != null && !superTypeSymbol.newGenericsExcluded()) {
                 queue.push(superType);
                 // If the class is also parameterized, we add it to the final list
                 if (isParameterized(superTypeSymbol)) {
@@ -563,6 +618,7 @@ public final class TransParameterizedTypes {
                 // Otherwise, we are facing a case where the actual type we used is also a parameterized type. We need
                 var concrete = findConcreteType(actual);
                 paramToConcrete.put(declared.tsym, concrete);
+                paramToConcrete.put(actual.tsym, concrete);
             }
         }
 
@@ -609,7 +665,7 @@ public final class TransParameterizedTypes {
      * @return the filtered definitions
      */
     private List<JCTree> filteredDefinitions(JCTree.JCClassDecl tree) {
-        if (!currentClass.newGenericsExcluded() || !isParameterized(tree.sym)) return tree.defs;
+        if (!isParameterized(tree.sym)) return tree.defs;
         var buffer = new ListBuffer<JCTree>();
         tree.defs.forEach(member -> {
             switch (member.getTag()) {
@@ -641,20 +697,23 @@ public final class TransParameterizedTypes {
         if (isNative(method.sym) || method.sym.isAbstract()) return;
         var oldTypeParameterScopes = typeParameterScopes;
         if (method.sym.isStatic()) { // static method cannot access the class type parameters, so we remove them
-            typeParameterScopes = List.nil();
+            typeParameterScopes = new ParameterizedScope();
         }
 
         try {
-            // Do not reorder this method call. It should be the first thing to do, as it updates a field
-            Symbol.VarSymbol argsVariable = null;
+            typeParameterScopes.prepareMethod(method.sym, this);
+
             if (isParameterized(method.sym)) {
-                argsVariable = createVariable(constantHolder.methodTypeArgsParamName, syms.methodTypeArgs, method.sym);
-                pushGroup(TypeParameterGroup.method(getTypeArguments(method.sym), argsVariable));
+                typeParameterScopes.pushMethodGroup(method.sym, getTypeArguments(method.sym), this);
             }
 
-            parameterizedMethodCallVisitor.visitMethod(method);
-            adjustBody(method, argsVariable, null, null);
+            parameterizedMethodCallVisitor.visitRegularMethod(method);
+
+            if (typeParameterScopes.hasUsedGroup()) {
+                adjustRegularMethodBody(method);
+            }
         } finally {
+            typeParameterScopes.clearMethod();
             typeParameterScopes = oldTypeParameterScopes;
         }
     }
@@ -663,6 +722,8 @@ public final class TransParameterizedTypes {
         var oldTypeParameterScopes = typeParameterScopes;
 
         try {
+            typeParameterScopes.prepareMethod(method.sym, this);
+
             Symbol.VarSymbol argsVariable = null;
             Symbol.VarSymbol constructorArgsVariable = null;
 
@@ -672,25 +733,29 @@ public final class TransParameterizedTypes {
                 insertInlineFieldsAndBlocks(method);
             }
 
-            if (!doesCallOverload && isParameterized(currentClass)) {
-                argsVariable = createVariable(constantHolder.argsParamName, syms.argBaseType, method.sym);
-                constructorArgsVariable = createVariable(
-                    constantHolder.constructorTypeArgsParamName,
-                    syms.constructorTypeArgsType,
-                    method.sym
-                );
+            if (isParameterized(currentClass)) {
+                // As we are in a constructor, we know that the last group is the current class group.
+                argsVariable = typeParameterScopes.currentClassArgs().handle();
+                if (!doesCallOverload) {
+                    constructorArgsVariable = createVariable(
+                        constantHolder.constructorTypeArgsParamName,
+                        syms.constructorTypeArgsType,
+                        method.sym
+                    );
+                }
             }
 
-            Symbol.VarSymbol methodArgsVariable = null;
             if (isParameterized(method.sym)) {
-                methodArgsVariable = createVariable(constantHolder.methodTypeArgsParamName, syms.methodTypeArgs, method.sym);
-                pushGroup(TypeParameterGroup.method(getTypeArguments(method.sym), methodArgsVariable));
+                typeParameterScopes.pushMethodGroup(method.sym, getTypeArguments(method.sym), this);
             }
 
-            parameterizedMethodCallVisitor.visitMethod(method);
+            parameterizedMethodCallVisitor.visitConstructor(method);
 
-            adjustBody(method, methodArgsVariable, argsVariable, constructorArgsVariable);
+            if (isParameterized(currentClass) || typeParameterScopes.hasUsedGroup()) {
+                adjustConstructorBody(method, argsVariable, constructorArgsVariable);
+            }
         } finally {
+            typeParameterScopes.clearMethod();
             typeParameterScopes = oldTypeParameterScopes;
         }
     }
@@ -751,7 +816,7 @@ public final class TransParameterizedTypes {
             var argFactory = parameterizedTypeOfFactory(isAccessible);
 
             argFactory.args = superType.getTypeArguments()
-                .map(argument -> argLiteralGenerator.generateSuperArgs(superType, argument, argsVariable));
+                .map(argument -> argLiteralGenerator.generateSuperArgs(superType, argument));
             argFactory.args = argFactory.args.prepend(classArgParam((Symbol.ClassSymbol) superType.tsym, isAccessible));
 
             c.args = List.of(argFactory, make.ClassLiteral(superType));
@@ -760,82 +825,261 @@ public final class TransParameterizedTypes {
         });
     }
 
-    /// Transform the body of the method to add the declaration of the mArgs and/or args variables.
-    ///
-    /// This method would convert:
+    /// Adjust the body of a constructor. This method adds the declarations of the mArgs and/or args variables:
     ///
     /// ```
-    /// <T> void foo(){
-    ///     // ...
-    ///}
-    ///```
-    /// to
-    /// ```
-    /// <T> void foo(){
-    ///     var args = MethodArgStack.typeArgs(...);
-    ///     // ...
-    ///}
-    ///```
+    /// var isEnabled = MethodArgStack.enabled();
     ///
-    /// @param method             the original method
-    /// @param methodArgsVariable the variable that contains the type arguments or null if the method is not
-    ///                                                                               parameterized
-    /// @param argsVariable       the variable that contains the arguments or null if the method is not
-    private void adjustBody(
+    /// MethodTypeArgs methodTypeArgs = null;
+    /// if (isEnabled){
+    ///     MethodArgStack.disable();
+    ///     MethodArgStack.methodTypeArgs(callerClass());
+    ///     MethodArgStack.enable();
+    ///}
+    /// if (methodTypeArgs == null) methodTypeArgs = MethodTypeArgs.of(defaultValue);
+    ///
+    /// Arg args = null;
+    /// ConstructorTypeArgs constructorTypeArgs = null;
+    /// if (isEnabled){
+    ///     args = MethodArgStack.typeArgs();
+    ///     if (args == null) args = RawType.of(currentClass);
+    ///     constructorTypeArgs = MethodArgStack.constructorTypeArgs();
+    ///     if (constructorTypeArgs == null) constructorTypeArgs = ConstructorTypeArgs.of();
+    ///     *all parameter initializations*
+    ///} else {
+    ///     args = RawType.of(currentClass);
+    ///}
+    /// super(...);
+    /// if (isEnabled){
+    ///     constructorTypeArgs.flush(this);
+    ///}
+    ///```
+    private void adjustConstructorBody(
         JCTree.JCMethodDecl method,
-        Symbol.VarSymbol methodArgsVariable,
         Symbol.VarSymbol argsVariable,
         Symbol.VarSymbol constructorArgsVariable
     ) {
-        if (argsVariable == null && methodArgsVariable == null) return;
-
         var newInstructions = new ListBuffer<JCTree.JCStatement>();
 
+        var isEnabled = addIsEnabled(newInstructions, method);
+
+        typeParameterScopes.forEachUsedGroup(group -> {
+            if (group.isClass()) {
+                if (group.handle() == argsVariable) return;
+                addArgsForRegularMethod(newInstructions, isEnabled, group.handle(), group.owner());
+            } else {
+                addMethodArgs(newInstructions, method, isEnabled, group.handle());
+            }
+        });
+
+        addArgsForConstructor(newInstructions, isEnabled, argsVariable, constructorArgsVariable);
+
+        addConstructorArgsFlush(newInstructions, method, isEnabled, constructorArgsVariable);
+
+        method.body.stats = newInstructions.toList();
+    }
+
+    /// Adjust the body of a regular method. This method adds the declarations of the mArgs and/or args variables:
+    ///
+    /// ```
+    /// var isEnabled = MethodArgStack.enabled();
+    ///
+    /// MethodTypeArgs methodTypeArgs = null;
+    /// if (isEnabled){
+    ///     MethodArgStack.disable();
+    ///     MethodArgStack.methodTypeArgs(callerClass());
+    ///     MethodArgStack.enable();
+    ///}
+    /// if (methodTypeArgs == null) methodTypeArgs = MethodTypeArgs.of(defaultValue);
+    ///
+    /// Arg args = null;
+    /// if (isEnabled) args = ArgMap.get(this, currentClass);
+    /// if (args == null) args = RawType.of(currentClass);
+    ///```
+    private void adjustRegularMethodBody(JCTree.JCMethodDecl method) {
+        var newInstructions = new ListBuffer<JCTree.JCStatement>();
+
+        var isEnabled = addIsEnabled(newInstructions, method);
+
+        typeParameterScopes.forEachUsedGroup(group -> {
+            if (group.isClass()) {
+                addArgsForRegularMethod(newInstructions, isEnabled, group.handle(), group.owner());
+            } else {
+                addMethodArgs(newInstructions, method, isEnabled, group.handle());
+            }
+        });
+    }
+
+    private Symbol.VarSymbol addIsEnabled(ListBuffer<JCTree.JCStatement> newInstructions, JCTree.JCMethodDecl method) {
         var isEnabled = createVariable(constantHolder.isEnabledName, syms.booleanType, method.sym);
         newInstructions.append(
             make.VarDef(isEnabled, staticMethodInvocation(constantHolder.isEnabledMethod))
         );
+        return isEnabled;
+    }
 
-        // if the method is a constructor and its class is parameterized, we declare the args variable that might be
-        // used in the body
-        if (argsVariable != null) {
-            // Arg args = null;
-            newInstructions.append(make.VarDef(argsVariable, nullLiteral()));
+    /// Adds the method args declaration for a method:
+    ///
+    /// ```
+    /// MethodTypeArgs methodTypeArgs = null;
+    /// if (isEnabled){
+    ///     MethodArgStack.disable();
+    ///     methodTypeArgs = MethodArgStack.methodTypeArgs(callerClass()); // or null if there is no virtual call
+    ///     MethodArgStack.enable();
+    ///}
+    /// if (methodTypeArgs == null) methodTypeArgs = MethodTypeArgs.of(defaultValue);
+    ///```
+    private void addMethodArgs(
+        ListBuffer<JCTree.JCStatement> newInstructions,
+        JCTree.JCMethodDecl method,
+        Symbol.VarSymbol isEnabled,
+        Symbol.VarSymbol methodArgsVariable
+    ) {
+        if (methodArgsVariable == null) return;
+
+        // MethodTypeArgs methodTypeArgs = null;
+        newInstructions.append(make.VarDef(methodArgsVariable, nullLiteral()));
+
+        // For methods that can be overriden outside the prototype, we need to add a check using the caller class.
+        if (!needsCallerInfo(method.sym)) {
+            var init = staticMethodInvocation(constantHolder.methodTypeArgsAccessMethod);
+            init.args = List.of(nullLiteral());
+            newInstructions.append(make.Exec(make.Assign(make.Ident(methodArgsVariable), init)));
+            return;
+        }
+
+        // if (isEnabled) {
+        //     MethodArgStack.disable();
+        //     methodTypeArgs = MethodArgStack.methodTypeArgs(callerClass()); or null if there is no virtual call
+        //     MethodArgStack.enable();
+        // }
+        var getInstance = staticMethodInvocation(constantHolder.argStackWalkerMethod);
+        var callerClass = instanceMethodInvocation(constantHolder.stackWalkerGetCallerClassMethod, getInstance);
+        var init = staticMethodInvocation(constantHolder.methodTypeArgsAccessMethod);
+        init.args = List.of(callerClass);
+        var assign = make.Assign(make.Ident(methodArgsVariable), init);
+        var ifBlock = make.If(
+            make.Ident(isEnabled),
+            make.Block(
+                0L,
+                List.of(
+                    make.Exec(staticMethodInvocation(constantHolder.disableMethod)),
+                    make.Exec(assign),
+                    make.Exec(staticMethodInvocation(constantHolder.enableMethod))
+                )
+            ),
+            null
+        );
+        newInstructions.append(ifBlock);
+
+        // if (methodTypeArgs == null) methodTypeArgs = MethodTypeArgs.of(defaultValue);
+        var mArgsFallback = staticMethodInvocation(constantHolder.methodTypeArgsOfMethod);
+        mArgsFallback.args = generateDefaultArgs(method.sym.getTypeParameters());
+        newInstructions.append(
+            argsFallback(
+                methodArgsVariable,
+                mArgsFallback
+            )
+        );
+    }
+
+    /// Adds the arg declaration for a regular method:
+    ///
+    /// ```
+    /// Arg args = null;
+    /// if (isEnabled) args = ArgMap.get(this, currentClass);
+    /// if (args == null) args = RawType.of(currentClass);
+    ///```
+    private void addArgsForRegularMethod(
+        ListBuffer<JCTree.JCStatement> newInstructions,
+        Symbol.VarSymbol isEnabled,
+        Symbol.VarSymbol argsVariable,
+        Symbol owner
+    ) {
+        // Arg args = null;
+        newInstructions.append(make.VarDef(argsVariable, nullLiteral()));
+
+        // if (isEnabled) args = ArgMap.get(this, currentClass);
+        var init = staticMethodInvocation(constantHolder.argMapGetMethod);
+        init.args = List.of(make.QualThis(owner.type), make.ClassLiteral(currentClass));
+        var initStatement = make.Exec(make.Assign(make.Ident(argsVariable), init));
+        var ifBlock = make.If(make.Ident(isEnabled), initStatement, null);
+        newInstructions.append(ifBlock);
+
+        // if (args == null) args = RawType.of(currentClass);
+        var argsFallback = staticMethodInvocation(constantHolder.rawTypeOfMethod);
+        argsFallback.args = List.of(make.ClassLiteral(currentClass.type));
+        newInstructions.append(
+            argsFallback(
+                argsVariable,
+                argsFallback
+            )
+        );
+    }
+
+    /// Adds the arg and constructor args declaration for a constructor:
+    ///
+    /// ```
+    /// Arg args = null;
+    /// ConstructorTypeArgs constructorTypeArgs = null;
+    /// if (isEnabled){
+    ///    args = MethodArgStack.typeArgs();
+    ///    if (args == null) args = args = RawType.of(currentClass);
+    ///    constructorTypeArgs = MethodArgStack.constructorTypeArgs();
+    ///    if (constructorTypeArgs == null) constructorTypeArgs = new ConstructorTypeArgs();
+    ///    *all parameter initializations*
+    ///} else {
+    ///    args = RawType.of(currentClass);
+    ///}
+    ///```
+    private void addArgsForConstructor(
+        ListBuffer<JCTree.JCStatement> newInstructions,
+        Symbol.VarSymbol isEnabled,
+        Symbol.VarSymbol argsVariable,
+        Symbol.VarSymbol constructorArgsVariable
+    ) {
+        if (argsVariable == null) return;
+
+        // Arg args = null;
+        newInstructions.append(make.VarDef(argsVariable, nullLiteral()));
+        if (constructorArgsVariable != null) {
             // ConstructorTypeArgs constructorTypeArgs = null;
             newInstructions.append(make.VarDef(constructorArgsVariable, nullLiteral()));
+        }
 
-            // if (isEnabled) {
-            //     args = MethodArgStack.typeArgs();
-            //     if (args == null) args = args = RawType.of(currentClass);
-            //     constructorTypeArgs = MethodArgStack.constructorTypeArgs();
-            //     if (constructorTypeArgs == null) constructorTypeArgs = new ConstructorTypeArgs();
-            //     *all parameter initializations*
-            // } else {
-            //     args = RawType.of(currentClass);
-            // }
+        // if (isEnabled) {
+        //     args = MethodArgStack.typeArgs();
+        //     if (args == null) args = args = RawType.of(currentClass);
+        //     constructorTypeArgs = MethodArgStack.constructorTypeArgs();
+        //     if (constructorTypeArgs == null) constructorTypeArgs = new ConstructorTypeArgs();
+        //     *all parameter initializations*
+        // } else {
+        //     args = RawType.of(currentClass);
+        // }
 
-            var conditional = new ListBuffer<JCTree.JCStatement>();
+        var conditional = new ListBuffer<JCTree.JCStatement>();
 
-            // args = MethodArgStack.typeArgs();
-            conditional.append(
-                make.Exec(
-                    make.Assign(
-                        make.Ident(argsVariable),
-                        staticMethodInvocation(constantHolder.argsAccessMethod)
-                    )
+        // args = MethodArgStack.typeArgs();
+        conditional.append(
+            make.Exec(
+                make.Assign(
+                    make.Ident(argsVariable),
+                    staticMethodInvocation(constantHolder.argsAccessMethod)
                 )
-            );
+            )
+        );
 
-            // if (args == null) args = RawType.of(currentClass);
-            var argsFallback = staticMethodInvocation(constantHolder.rawTypeOfMethod);
-            argsFallback.args = List.of(make.ClassLiteral(currentClass.type));
-            conditional.append(
-                argsFallback(
-                    argsVariable,
-                    argsFallback
-                )
-            );
+        // if (args == null) args = RawType.of(currentClass);
+        var argsFallback = staticMethodInvocation(constantHolder.rawTypeOfMethod);
+        argsFallback.args = List.of(make.ClassLiteral(currentClass.type));
+        conditional.append(
+            argsFallback(
+                argsVariable,
+                argsFallback
+            )
+        );
 
+        if (constructorArgsVariable != null) {
             // constructorTypeArgs = MethodArgStack.constructorTypeArgs();
             var ctorArgsAssign = make.Assign(
                 make.Ident(constructorArgsVariable),
@@ -853,87 +1097,58 @@ public final class TransParameterizedTypes {
 
             // all parameter initializations
             fillArgMap(conditional, argsVariable, constructorArgsVariable);
-
-
-            // } else { args = RawType.of(currentClass); }
-            var fallback2 = staticMethodInvocation(constantHolder.rawTypeOfMethod)
-                .setType(syms.argBaseType);
-            fallback2.args = List.of(make.ClassLiteral(currentClass.type));
-            var elseBlock = make.Assign(make.Ident(argsVariable), fallback2);
-
-            var ifBlock = make.If(
-                make.Ident(isEnabled),
-                make.Block(0L, conditional.toList()),
-                make.Block(0L, List.of(make.Exec(elseBlock)))
-            );
-
-            newInstructions.append(ifBlock);
         }
 
 
-        // if the method has type parameters, we declare the methodArgs variable that might be used in the body
-        if (methodArgsVariable != null) {
-            // MethodTypeArgs methodTypeArgs = null;
-            newInstructions.append(make.VarDef(methodArgsVariable, nullLiteral()));
+        // } else { args = RawType.of(currentClass); }
+        var fallback2 = staticMethodInvocation(constantHolder.rawTypeOfMethod)
+                            .setType(syms.argBaseType);
+        fallback2.args = List.of(make.ClassLiteral(currentClass.type));
+        var elseBlock = make.Assign(make.Ident(argsVariable), fallback2);
 
+        var ifBlock = make.If(
+            make.Ident(isEnabled),
+            make.Block(0L, conditional.toList()),
+            make.Block(0L, List.of(make.Exec(elseBlock)))
+        );
 
-            // if (MethodArgStack.enabled()) {
-            //     methodTypeArgs = MethodArgStack.methodTypeArgs(callerClass());
-            //     MethodArgStack.enable();
-            // }
-            var getInstance = staticMethodInvocation(constantHolder.argStackWalkerMethod);
-            var callerClass = instanceMethodInvocation(constantHolder.stackWalkerGetCallerClassMethod, getInstance);
-            var init = staticMethodInvocation(constantHolder.methodTypeArgsAccessMethod);
-            init.args = List.of(callerClass);
-            var assign = make.Assign(make.Ident(methodArgsVariable), init);
-            var ifBlock = make.If(
-                make.Ident(isEnabled),
-                make.Block(
-                    0L,
-                    List.of(
-                        make.Exec(staticMethodInvocation(constantHolder.disableMethod)),
-                        make.Exec(assign),
-                        make.Exec(staticMethodInvocation(constantHolder.enableMethod))
-                    )
-                ),
-                null
-            );
-            newInstructions.append(ifBlock);
+        newInstructions.append(ifBlock);
+    }
 
-            // if (methodTypeArgs == null) methodTypeArgs = MethodTypeArgs.of(default);
-            var mArgsFallback = staticMethodInvocation(constantHolder.methodTypeArgsOfMethod);
-            mArgsFallback.args = generateDefaultArgs(method.sym.getTypeParameters());
-            newInstructions.append(
-                argsFallback(
-                    methodArgsVariable,
-                    mArgsFallback
-                )
-            );
-
-        }
-
-        if (constructorArgsVariable != null) {
-            for (JCTree.JCStatement instr : method.body.stats) {
-                newInstructions.add(instr);
-                if (TreeInfo.isSuperCall(instr)) {
-                    var flush = instanceMethodInvocation(
-                        constantHolder.constructorTypeArgsFlushMethod,
-                        constructorArgsVariable
-                    );
-                    flush.args = List.of(make.This(currentClass.type));
-                    var ifBlock = make.If(
-                        make.Ident(isEnabled),
-                        make.Exec(flush),
-                        null
-                    );
-                    newInstructions.add(ifBlock);
-                }
-            }
-        } else {
+    /// Adds the constructor args flush call for a constructor (after the super call):
+    ///
+    /// ```
+    /// super();
+    /// if (isEnabled){
+    ///    constructorArgs.flush(this);
+    ///}
+    ///```
+    private void addConstructorArgsFlush(
+        ListBuffer<JCTree.JCStatement> newInstructions,
+        JCTree.JCMethodDecl method,
+        Symbol.VarSymbol isEnabled,
+        Symbol.VarSymbol constructorArgsVariable
+    ) {
+        if (constructorArgsVariable == null) {
             newInstructions.addAll(method.body.stats);
+            return;
         }
-
-        method.body.stats = newInstructions.toList();
+        for (JCTree.JCStatement instr : method.body.stats) {
+            newInstructions.add(instr);
+            if (TreeInfo.isSuperCall(instr)) {
+                var flush = instanceMethodInvocation(
+                    constantHolder.constructorTypeArgsFlushMethod,
+                    constructorArgsVariable
+                );
+                flush.args = List.of(make.This(currentClass.type));
+                var ifBlock = make.If(
+                    make.Ident(isEnabled),
+                    make.Exec(flush),
+                    null
+                );
+                newInstructions.add(ifBlock);
+            }
+        }
     }
 
     private JCTree.JCStatement argsFallback(Symbol.VarSymbol argsVariable, JCTree.JCExpression call) {
@@ -948,12 +1163,65 @@ public final class TransParameterizedTypes {
     }
     //endregion
 
-    private static final class InstructionVisitor extends TreeTranslator {
+    private final class InstructionVisitor extends TreeTranslator {
 
-        public void visitMethod(JCTree.JCMethodDecl method) {
-            if (method.body == null) { // abstract method
-                return;
+        private boolean isInExpression = false;
+
+        private Symbol.VarSymbol methodArgsVariable;
+
+        private Symbol.VarSymbol argsVariable;
+
+        @Override
+        public void visitApply(JCTree.JCMethodInvocation tree) {
+            var oldIsInExpression = isInExpression;
+            isInExpression = true;
+            try {
+                tree.meth = translate(tree.meth);
+            } finally {
+                isInExpression = oldIsInExpression;
             }
+
+            var sym = (Symbol.MethodSymbol) TreeInfo.symbol(tree.meth);
+            if (sym == null) throw new AssertionError("No symbol for " + tree.meth);
+
+            // TODO `this` calls might need a repush of args
+            // If the symbol is not parameterized, we have nothing to do.
+            if (!isParameterized(sym)) return;
+
+            var generatedArgs = basicMethodArgConstruction(
+                sym,
+                tree.typeargs,
+                tree.meth.type.asMethodType().inferenceMapping
+            );
+
+            if (tree.args.isEmpty()) {
+                // If the method has a void type, we can just add an instruction that pushes the information right
+                // before the call.
+                // To do so, we change the call in a block with two calls.
+                if (sym.getReturnType().getKind() == TypeKind.VOID) {
+                    var push = staticMethodInvocation(constantHolder.pushMethodArgMethod);
+                    var caller = needsCallerInfo(sym) ? make.ClassLiteral(currentClass) : nullLiteral();
+                    push.args = List.of(caller);
+                    result = make.Block(
+                        0L,
+                        List.of(
+                            make.Exec(push),
+                            make.Exec(tree)
+                        )
+                    );
+                } else {
+                    // otherwise, we are calling a method that returns a value. We can use the 'e' method
+
+                }
+            }
+        }
+
+        public void visitRegularMethod(JCTree.JCMethodDecl method) {
+//            method.accept(this);
+        }
+
+        public void visitConstructor(JCTree.JCMethodDecl method) {
+//            method.accept(this);
         }
 
         public void visitField(JCTree.JCVariableDecl field) {
@@ -964,36 +1232,67 @@ public final class TransParameterizedTypes {
 
         }
 
+        private Optional<JCTree.JCMethodInvocation> basicMethodArgConstruction(
+            Symbol sym,
+            List<JCTree.JCExpression> explicitTypes,
+            List<Pair<Type, Type>> inferredTypes
+        ) {
+            var call = staticMethodInvocation(constantHolder.methodTypeArgsOfMethod);
+            // by default, we try to use the provided type arguments Foo.<String>foo();, but if none are provided, we
+            // use the inferred types `String s = foo();`
+            if (!explicitTypes.isEmpty()) { // provided type arguments
+                call.args = explicitTypes.map(t -> argLiteralGenerator.generateArgs(null, t.type));
+                return Optional.of(call);
+            }
+
+            if (inferredTypes == null) { // special case for rawtype call, we do nothing
+                return Optional.empty();
+            }
+
+            var args = List.<JCTree.JCExpression>nil();
+            for (var t : sym.type.getTypeArguments()) {
+                var tsym = t.tsym;
+                Type res = null;
+                for (var pair : inferredTypes) { // we try to find the type in the map
+                    if (pair.fst.tsym == tsym) {
+                        res = pair.snd;
+                        break;
+                    }
+                }
+                if (res == null) { // if no type is found, it means that the type is an unbound wildcard
+                    var upperBound = tsym.type.getUpperBound();
+                    res = new Type.WildcardType(
+                        upperBound,
+                        upperBound == syms.objectType ? BoundKind.UNBOUND : BoundKind.EXTENDS,
+                        null
+                    );
+                }
+                args = args.prepend(argLiteralGenerator.generateArgs(null, res));
+            }
+
+            call.args = args;
+            return Optional.of(call);
+        }
+
     }
 
     //region arg generation
     private final class ArgLiteralGenerator {
 
-        private Symbol.VarSymbol classArgs;
         /// This field is only used to know if we need to find a concrete type in type var resolution.
         private boolean inSuper;
 
-        public JCTree.JCExpression generateArgs(Type previous, Type current, Symbol.VarSymbol classArgs) {
-            this.classArgs = classArgs;
+        public JCTree.JCExpression generateArgs(Type previous, Type current) {
             inSuper = false;
-            try {
-                return generateArgs(previous, current);
-            } finally {
-                this.classArgs = null;
-            }
+            return actualGenerateArgs(previous, current);
         }
 
-        public JCTree.JCExpression generateSuperArgs(Type previous, Type current, Symbol.VarSymbol classArgs) {
-            this.classArgs = classArgs;
+        public JCTree.JCExpression generateSuperArgs(Type previous, Type current) {
             inSuper = true;
-            try {
-                return generateArgs(previous, current);
-            } finally {
-                this.classArgs = null;
-            }
+            return actualGenerateArgs(previous, current);
         }
 
-        private JCTree.JCExpression generateArgs(Type previous, Type current) {
+        private JCTree.JCExpression actualGenerateArgs(Type previous, Type current) {
             var res = switch (current.getKind()) {
                 case ARRAY -> generateArrayKind((Type.ArrayType) current);
                 case WILDCARD -> generateWildcardKind((Type.WildcardType) current);
@@ -1013,7 +1312,7 @@ public final class TransParameterizedTypes {
 
         private JCTree.JCExpression generateArrayKind(Type.ArrayType type) {
             var call = staticMethodInvocation(constantHolder.arrayTypeOfMethod);
-            call.args = List.of(generateArgs(type, type.elemtype));
+            call.args = List.of(actualGenerateArgs(type, type.elemtype));
             return call;
         }
 
@@ -1022,12 +1321,12 @@ public final class TransParameterizedTypes {
                 case UNBOUND -> generateWcExtendsObject();
                 case EXTENDS -> {
                     var call = staticMethodInvocation(constantHolder.wildcardTypeOfUpperMethod);
-                    call.args = List.of(generateArgs(type, type.getExtendsBound()));
+                    call.args = List.of(actualGenerateArgs(type, type.getExtendsBound()));
                     yield call;
                 }
                 case SUPER -> {
                     var call = staticMethodInvocation(constantHolder.wildcardTypeOfLowerMethod);
-                    call.args = List.of(generateArgs(type, type.getSuperBound()));
+                    call.args = List.of(actualGenerateArgs(type, type.getSuperBound()));
                     yield call;
                 }
             };
@@ -1036,7 +1335,7 @@ public final class TransParameterizedTypes {
         private JCTree.JCExpression generateIntersectionKind(Type.IntersectionClassType type) {
             var call = staticMethodInvocation(constantHolder.intersectionTypeOfMethod);
             var buffer = new ListBuffer<JCTree.JCExpression>();
-            type.getComponents().forEach(c -> buffer.add(generateArgs(type, c)));
+            type.getComponents().forEach(c -> buffer.add(actualGenerateArgs(type, c)));
             call.args = buffer.toList();
             return call;
         }
@@ -1056,7 +1355,7 @@ public final class TransParameterizedTypes {
                 var call = parameterizedTypeOfFactory(isAccessible);
                 var buffer = new ListBuffer<JCTree.JCExpression>();
                 buffer.add(classFieldAcc);
-                type.typarams_field.forEach(param -> buffer.add(generateArgs(type, param)));
+                type.typarams_field.forEach(param -> buffer.add(actualGenerateArgs(type, param)));
                 call.args = buffer.toList();
                 return call;
             }
@@ -1071,7 +1370,7 @@ public final class TransParameterizedTypes {
             if (inSuper) {
                 var actual = findConcreteType(type);
                 if (actual != type) { // if a mapping is provided, try to find the actual type var
-                    return generateArgs(enclosing, actual);
+                    return actualGenerateArgs(enclosing, actual);
                 }
             }
 
@@ -1082,7 +1381,7 @@ public final class TransParameterizedTypes {
                 return generateWcExtendsObject();
             }
 
-            return typeVarResolution(type.tsym, classArgs);
+            return typeVarResolution(type.tsym);
         }
 
         private JCTree.JCExpression generatePrimitiveType(Type.JCPrimitiveType type) {
@@ -1098,7 +1397,7 @@ public final class TransParameterizedTypes {
             if (enclosingType == null || Type.noType.equals(enclosingType)) return res;
 
             // if we are in an inner class, we also need to generate the args for the enclosing type
-            var outerRes = generateArgs(current, enclosingType);
+            var outerRes = actualGenerateArgs(current, enclosingType);
             var params = List.of(outerRes, res);
             var innerCall = staticMethodInvocation(constantHolder.innerClassTypeOfMethod);
             innerCall.args = params;
@@ -1173,22 +1472,21 @@ public final class TransParameterizedTypes {
     /// parameter at runtime.
     ///
     /// @param typeVar   the symbol of the type variable that we are looking for
-    /// @param classArgs the object containing type information for the current class (can be null).
-    private JCTree.JCExpression typeVarResolution(Symbol typeVar, Symbol.VarSymbol classArgs) {
-        TypeParameterGroup foundScope = null;
+    private JCTree.JCExpression typeVarResolution(Symbol typeVar) {
+        ParameterizedScope.Group foundGroup = null;
         var foundIndex = -1;
 
         for (var scope : typeParameterScopes) {
             var index = scope.index(typeVar);
             if (index != -1) {
-                foundScope = scope;
+                foundGroup = scope;
                 foundIndex = index;
                 break;
             }
         }
 
-        if (foundScope != null) {
-            return foundScope.access(foundIndex, classArgs, this);
+        if (foundGroup != null) {
+            return foundGroup.access(foundIndex, this);
         }
 
         // this part is used for external field assign.
@@ -1218,98 +1516,362 @@ public final class TransParameterizedTypes {
     //endregion
 
     //region scope type parameter
+    private static final class ParameterizedScope implements Iterable<ParameterizedScope.Group> {
+        private final ArrayDeque<ClassGroup> classes = new ArrayDeque<>();
+        private final ArrayDeque<MethodGroup> methods = new ArrayDeque<>();
+        private int methodIndex;
+        private int classIndex;
 
-    /// This class is used to represent a group of type parameters coming from the same declaration. Anytime a type
-    /// parameter is referenced in the code, we need to know its actual value to achieve reification.
-    ///
-    /// To do so, each time a type parameter is declared (either in a method or a class), we create a new
-    /// [TypeParameterGroup] instance. This instance will store all the type parameters belonging to this declaration
-    /// and also the type of the declaration (whether they are declared by a method or a class).
-    private static final class TypeParameterGroup {
-        private final java.util.List<? extends Symbol> variableParams;
-        private final boolean isClass;
-        private final Symbol.VarSymbol constantHandle;
-
-        private TypeParameterGroup(
-            java.util.List<? extends Symbol> variableParams,
-            boolean isClass,
-            Symbol.VarSymbol constantHandle
-        ) {
-            Objects.requireNonNull(variableParams);
-            this.variableParams = variableParams;
-            this.isClass = isClass;
-            this.constantHandle = constantHandle;
-        }
-
-        public int index(Symbol typeVar) {
-            return variableParams.indexOf(typeVar);
-        }
-
-        public JCTree.JCExpression access(int index, Symbol.VarSymbol classArgs, TransParameterizedTypes handler) {
-            if (isClass) {
-                Objects.requireNonNull(classArgs);
-                return classAccess(index, classArgs, handler);
+        /// This method should be called when visiting a method or a constructor. It increases the batch index and init
+        /// all handles.
+        public void prepareMethod(Symbol.MethodSymbol currentMethod, TransParameterizedTypes handler) {
+            methodIndex++;
+            var it = classes.descendingIterator();
+            while (it.hasNext()) {
+                var group = it.next();
+                if (group.handle() != null) break; // already initialized
+                group.setForMethod(
+                    createVariable(
+                        handler.constantHolder.argsParamName,
+                        handler.syms.argBaseType,
+                        currentMethod
+                    ),
+                    methodIndex
+               );
             }
-            return methodAccess(index, constantHandle, handler);
         }
 
-        /**
-         * This scope gets the information from the enclosing method arguments.
-         *
-         * <pre>
-         * static &lt;T&gt; void foo() {
-         *     var l = List.&lt;T&gt;of();
-         * }
-         * </pre>
-         * It uses the arg local variable generated in all parameterized methods.
-         *
-         * @param arguments          the list of type arguments declared in the method
-         * @param methodArgsVariable the local variable containing the type information for this method
-         */
-        public static TypeParameterGroup method(java.util.List<? extends Symbol> arguments, Symbol.VarSymbol methodArgsVariable) {
-            Objects.requireNonNull(methodArgsVariable);
-            return new TypeParameterGroup(arguments, false, methodArgsVariable);
+        public void prepareClass() {
+            classIndex++;
         }
 
-        /**
-         * This scope gets the information from args stored in the object.
-         *
-         * <pre>
-         * interface Foo&lt;T&gt; {
-         *     void foo() {
-         *         var l = List.&lt;T&gt;of();
-         *     }
-         * }
-         * </pre>
-         *
-         * @param arguments the list of type arguments declared in the class
-         */
-        public static TypeParameterGroup clazz(java.util.List<? extends Symbol> arguments) {
-            return new TypeParameterGroup(arguments, true, null);
+        public void pushClassGroup(
+            Symbol.ClassSymbol owner,
+            java.util.List<? extends Symbol> variableParams
+        ) {
+            // index for classes is always -1, as it will be initialized in methods when calling prepare
+            classes.add(new ClassGroup(variableParams, classIndex, owner));
         }
 
-        private static JCTree.JCExpression methodAccess(
-            int index,
-            Symbol.VarSymbol variable,
+        public void pushMethodGroup(
+            Symbol.MethodSymbol owner,
+            java.util.List<? extends Symbol> variableParams,
             TransParameterizedTypes handler
         ) {
-            var call = handler.instanceMethodInvocation(handler.constantHolder.methodTypeArgsGetMethod, variable);
-            call.args = List.of(handler.make.Literal(index));
-            return call;
+            var handle = createVariable(handler.constantHolder.methodTypeArgsParamName, handler.syms.methodTypeArgs, owner);
+            methods.add(new MethodGroup(handle, variableParams, methodIndex));
         }
 
-        private static JCTree.JCExpression classAccess(
-            int index,
-            Symbol.VarSymbol variable,
-            TransParameterizedTypes handler
-        ) {
-            var call = handler.staticMethodInvocation(handler.constantHolder.typeArgsGetArgMethod);
-            var id = handler.make.Ident(variable);
-            call.args = List.of(id, handler.make.Literal(index));
-            return call;
+        public void clearMethod() {
+            var it = classes.descendingIterator();
+            while (it.hasNext()) {
+                var group = it.next();
+                if (group.methodIndex != methodIndex) break;
+                group.reset();
+            }
+            var it2 = methods.descendingIterator();
+            while (it2.hasNext()) {
+                var group = it2.next();
+                if (group.methodIndex != methodIndex) break;
+                it2.remove();
+            }
+
+            methodIndex--;
+        }
+
+        public void clearClass() {
+            var it = classes.descendingIterator();
+            while (it.hasNext()) {
+                var group = it.next();
+                if (group.classIndex != classIndex) break; // we only want the groups from the current batch
+                it.remove();
+            }
+            classIndex--;
+        }
+
+        public void forEachUsedGroup(Consumer<? super ParameterizedScope.Group> action) {
+            var it = classes.descendingIterator();
+            while (it.hasNext()) {
+                var group = it.next();
+                if (group.methodIndex != methodIndex) break; // we only want the groups from the current batch
+                if (group.used()) action.accept(group); // found a used group
+            }
+            var it2 = methods.descendingIterator();
+            while (it2.hasNext()) {
+                var group = it2.next();
+                if (group.methodIndex != methodIndex) break; // we only want the groups from the current batch
+                if (group.used()) action.accept(group); // found a used group
+            }
+        }
+
+        public boolean hasUsedGroup() {
+            var it = classes.descendingIterator();
+            while (it.hasNext()) {
+                var group = it.next();
+                if (group.methodIndex != methodIndex) break;
+                if (group.used()) return true; // found a used group
+            }
+            var it2 = methods.descendingIterator();
+            while (it2.hasNext()) {
+                var group = it2.next();
+                if (group.methodIndex != methodIndex) break;
+                if (group.used()) return true; // found a used group
+            }
+            return false;
+        }
+
+        @Override
+        public Iterator<Group> iterator() {
+            return new Iterator<Group>() {
+                private final Iterator<ClassGroup> it = classes.descendingIterator();
+                private final Iterator<MethodGroup> it2 = methods.descendingIterator();
+
+                @Override
+                public boolean hasNext() {
+                    return it.hasNext() || it2.hasNext();
+                }
+
+                @Override
+                public Group next() {
+                    if (it.hasNext()) {
+                        return it.next();
+                    }
+                    if (it2.hasNext()) {
+                        return it2.next();
+                    }
+                    throw new NoSuchElementException("No more groups in the scope");
+                }
+            };
+        }
+
+        public Group currentClassArgs() {
+            return classes.getLast();
+        }
+
+        @Override
+        public String toString() {
+            return "(methods: " + methods + ", classes: " + classes + ")";
+        }
+
+        private boolean isFromCurrentBatch(int index) {
+            return methodIndex == index || -methodIndex == index;
+        }
+
+        interface Group {
+            boolean used();
+
+            boolean isClass();
+
+            Symbol.VarSymbol handle();
+
+            int index(Symbol typeVar);
+
+            default Symbol owner() {
+                throw new UnsupportedOperationException();
+            }
+
+            JCTree.JCExpression access(int index, TransParameterizedTypes handler);
+        }
+
+        private static abstract class Base implements Group {
+            private final java.util.List<? extends Symbol> variableParams;
+            private boolean used;
+
+            protected Base(java.util.List<? extends Symbol> variableParams) {
+                this.variableParams = variableParams;
+                this.used = false;
+            }
+
+            @Override
+            public final boolean used() {
+                return used;
+            }
+
+            @Override
+            public final int index(Symbol typeVar) {
+                return variableParams.indexOf(typeVar);
+            }
+
+            @Override
+            public String toString() {
+                return variableParams.toString();
+            }
+
+        }
+
+        private static final class MethodGroup extends Base {
+            private final Symbol.VarSymbol handle;
+            private final int methodIndex;
+
+            MethodGroup(Symbol.VarSymbol handle, java.util.List<? extends Symbol> variableParams, int methodIndex) {
+                super(variableParams);
+                this.handle = handle;
+                this.methodIndex = methodIndex;
+            }
+
+            @Override
+            public boolean isClass() {
+                return false;
+            }
+
+            @Override
+            public Symbol.VarSymbol handle() {
+                return handle;
+            }
+
+            @Override
+            public JCTree.JCExpression access(int index, TransParameterizedTypes handler) {
+                var call = handler.instanceMethodInvocation(handler.constantHolder.methodTypeArgsGetMethod, handle);
+                call.args = List.of(handler.make.Literal(index));
+                return call;
+            }
+
+        }
+
+        private static final class ClassGroup extends Base {
+            private Symbol.VarSymbol handle;
+            private final Symbol owner;
+            private final int classIndex;
+            private int methodIndex;
+
+            ClassGroup(
+                java.util.List<? extends Symbol> variableParams,
+                int classIndex,
+                Symbol owner
+            ) {
+                super(variableParams);
+                this.owner = owner;
+                this.classIndex = classIndex;
+            }
+
+            @Override
+            public boolean isClass() {
+                return true;
+            }
+
+            @Override
+            public Symbol.VarSymbol handle() {
+                return handle;
+            }
+
+            @Override
+            public Symbol owner() {
+                return owner;
+            }
+
+            public void setForMethod(Symbol.VarSymbol handle, int methodIndex) {
+                this.handle = handle;
+                this.methodIndex = methodIndex;
+            }
+
+            public void reset() {
+                this.handle = null;
+                this.methodIndex = -1;
+            }
+
+            @Override
+            public JCTree.JCExpression access(int index, TransParameterizedTypes handler) {
+                var call = handler.staticMethodInvocation(handler.constantHolder.typeArgsGetArgMethod);
+                var id = handler.make.Ident(handle);
+                call.args = List.of(id, handler.make.Literal(index));
+                return call;
+            }
+
         }
 
     }
+
+//    /// This class is used to represent a group of type parameters coming from the same declaration. Anytime a type
+//    /// parameter is referenced in the code, we need to know its actual value to achieve reification.
+//    ///
+//    /// To do so, each time a type parameter is declared (either in a method or a class), we create a new
+//    /// [TypeParameterGroup] instance. This instance will store all the type parameters belonging to this declaration
+//    /// and also the type of the declaration (whether they are declared by a method or a class).
+//    private static final class TypeParameterGroup {
+//        private final java.util.List<? extends Symbol> variableParams;
+//        private final boolean isClass;
+//        private final Symbol.VarSymbol methodArgs;
+//
+//        private TypeParameterGroup(
+//            java.util.List<? extends Symbol> variableParams,
+//            boolean isClass,
+//            Symbol.VarSymbol methodArgs
+//        ) {
+//            Objects.requireNonNull(variableParams);
+//            this.variableParams = variableParams;
+//            this.isClass = isClass;
+//            this.methodArgs = methodArgs;
+//        }
+//
+//        public int index(Symbol typeVar) {
+//            return variableParams.indexOf(typeVar);
+//        }
+//
+//        public JCTree.JCExpression access(int index, Symbol.VarSymbol classArgs, TransParameterizedTypes handler) {
+//            if (isClass) {
+//                Objects.requireNonNull(classArgs);
+//                return classAccess(index, classArgs, handler);
+//            }
+//            return methodAccess(index, methodArgs, handler);
+//        }
+//
+//        /**
+//         * This scope gets the information from the enclosing method arguments.
+//         *
+//         * <pre>
+//         * static &lt;T&gt; void foo() {
+//         *     var l = List.&lt;T&gt;of();
+//         * }
+//         * </pre>
+//         * It uses the arg local variable generated in all parameterized methods.
+//         *
+//         * @param arguments          the list of type arguments declared in the method
+//         * @param methodArgsVariable the local variable containing the type information for this method
+//         */
+//        public static TypeParameterGroup method(java.util.List<? extends Symbol> arguments, Symbol.VarSymbol methodArgsVariable) {
+//            Objects.requireNonNull(methodArgsVariable);
+//            return new TypeParameterGroup(arguments, false, methodArgsVariable);
+//        }
+//
+//        /**
+//         * This scope gets the information from args stored in the object.
+//         *
+//         * <pre>
+//         * interface Foo&lt;T&gt; {
+//         *     void foo() {
+//         *         var l = List.&lt;T&gt;of();
+//         *     }
+//         * }
+//         * </pre>
+//         *
+//         * @param arguments the list of type arguments declared in the class
+//         */
+//        public static TypeParameterGroup clazz(java.util.List<? extends Symbol> arguments) {
+//            return new TypeParameterGroup(arguments, true, null);
+//        }
+//
+//        private static JCTree.JCExpression methodAccess(
+//            int index,
+//            Symbol.VarSymbol variable,
+//            TransParameterizedTypes handler
+//        ) {
+//            var call = handler.instanceMethodInvocation(handler.constantHolder.methodTypeArgsGetMethod, variable);
+//            call.args = List.of(handler.make.Literal(index));
+//            return call;
+//        }
+//
+//        private static JCTree.JCExpression classAccess(
+//            int index,
+//            Symbol.VarSymbol variable,
+//            TransParameterizedTypes handler
+//        ) {
+//            var call = handler.staticMethodInvocation(handler.constantHolder.typeArgsGetArgMethod);
+//            var id = handler.make.Ident(variable);
+//            call.args = List.of(id, handler.make.Literal(index));
+//            return call;
+//        }
+//
+//    }
 
     //endregion
 
@@ -1384,12 +1946,12 @@ public final class TransParameterizedTypes {
     //endregion
 
     //region utils
-    private JCTree.JCExpression nullLiteral() {
-        return make.Literal(TypeTag.BOT, null).setType(syms.botType);
+    private boolean needsCallerInfo(Symbol.MethodSymbol method) {
+        return !(method.isStatic() || method.isPrivate());
     }
 
-    private void pushGroup(TypeParameterGroup group) {
-        typeParameterScopes = typeParameterScopes.prepend(group);
+    private JCTree.JCExpression nullLiteral() {
+        return make.Literal(TypeTag.BOT, null).setType(syms.botType);
     }
 
     private JCTree.JCNewClass newConstructorTypeArgs() {

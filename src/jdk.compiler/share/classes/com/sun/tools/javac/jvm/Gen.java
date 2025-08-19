@@ -947,6 +947,9 @@ public class Gen extends JCTree.Visitor {
 
                 try {
                     genStat(tree.body, env);
+                } catch (Error e) {
+                    System.out.println(tree);
+                    throw e;
                 } catch (CodeSizeOverflow e) {
                     // Failed due to code limit, try again with jsr/ret
                     startpcCrt = initCode(tree, env, fatcode);

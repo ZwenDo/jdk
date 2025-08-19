@@ -1,8 +1,8 @@
 package java.util.ptype;
 
 import jdk.internal.misc.VM;
+import jdk.internal.vm.annotation.Stable;
 
-import java.util.Set;
 import java.util.function.Supplier;
 
 /// Class handling type argument propagation through method calls.
@@ -145,20 +145,34 @@ public final class MethodArgStack {
     }
 
     private static MethodArgStack instance() {
-        return VM.isBooted() ? Holder.INSTANCES.get() : DEFAULT;
-//        return DEFAULT;
+        if (!VM.isBooted() || useDefault) {
+            return DEFAULT;
+        }
+        if (INSTANCES != null) {
+            return INSTANCES.get();
+        }
+        synchronized (LOCK) {
+            if (INSTANCES != null) {
+                return INSTANCES.get();
+            }
+            useDefault = true;
+            INSTANCES = ThreadLocal.withInitial(
+                new Supplier<>() {
+                    @Override
+                    public MethodArgStack get() {
+                        return new MethodArgStack();
+                    }
+                }
+            );
+            useDefault = false;
+            return INSTANCES.get();
+        }
     }
 
-    private static final class Holder {
-        private static final ThreadLocal<MethodArgStack> INSTANCES = ThreadLocal.withInitial(
-            new Supplier<>() {
-                @Override
-                public MethodArgStack get() {
-                    return new MethodArgStack();
-                }
-            }
-        );
-    }
+    private static final Object LOCK = new Object();
+
+    private static volatile ThreadLocal<MethodArgStack> INSTANCES;
+    private static volatile boolean useDefault = true;
 
 
     private MethodArgStack() {

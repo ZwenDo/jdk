@@ -223,6 +223,15 @@ public class Infer {
                 log.note(env.tree.pos, Notes.DeferredMethodInst(msym, mt, resultInfo.pt));
             }
 
+            var mapping = new ListBuffer<Pair<Type, Type>>();
+            var inf = inferenceContext.inferencevars.iterator();
+            var undet = inferenceContext.undetvars.iterator();
+            while (inf.hasNext()) {
+                var uv = (UndetVar) undet.next();
+                mapping.prepend(Pair.of(inf.next(), uv.getInst() != null ? uv.getInst() : uv.qtype));
+            }
+            mt.inferenceMapping = mapping.toList();
+
             // return instantiated version of method type
             return mt;
         } finally {
