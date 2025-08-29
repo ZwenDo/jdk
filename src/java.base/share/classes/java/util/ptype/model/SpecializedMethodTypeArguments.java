@@ -10,10 +10,17 @@ public final class SpecializedMethodTypeArguments implements SpecializedTypeCont
 
     private final ArrayList<SpecializedType> arguments;
 
+    /// Creates a new instance.
+    ///
+    /// @param arguments the arguments of the method
     public SpecializedMethodTypeArguments(SpecializedType... arguments) {
         this.arguments = ArrayList.of(Utils.requireNonNull(arguments));
     }
 
+    /// Gets the n-th specialized type.
+    ///
+    /// @param index the index at which get the specialized type.
+    /// @return the found index
     public SpecializedType typeArgument(int index) {
         Objects.checkIndex(arguments.size(), index);
         return arguments.get(index);

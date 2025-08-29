@@ -124,6 +124,8 @@ module java.base {
     exports java.util.stream;
     exports java.util.zip;
     exports java.util.ptype;
+    exports java.util.ptype.util;
+    exports java.util.ptype.model;
     exports javax.crypto;
     exports javax.crypto.interfaces;
     exports javax.crypto.spec;

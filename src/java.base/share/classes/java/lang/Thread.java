@@ -245,7 +245,7 @@ public class Thread implements Runnable {
         volatile int priority;
         volatile boolean daemon;
         volatile int threadStatus;
-        private final SpecializedTypePassingHandler stpHandler = new SpecializedTypePassingHandler();
+//        private final SpecializedTypePassingHandler stpHandler = new SpecializedTypePassingHandler();
 
         // This map is maintained by the ThreadLocal class
         ThreadLocal.ThreadLocalMap terminatingThreadLocals;
@@ -277,7 +277,8 @@ public class Thread implements Runnable {
     ///
     /// @return the specialized type passing handler
     public SpecializedTypePassingHandler stpHandler() {
-        return holder.stpHandler;
+//        return holder.stpHandler;
+        return null;
     }
 
     /*

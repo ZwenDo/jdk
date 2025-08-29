@@ -2,7 +2,7 @@ package java.util.ptype.util;
 
 final class HashSet<E> {
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private Node<E>[] content = (Node<E>[]) new Node[64];
 
     private int size;
@@ -37,7 +37,7 @@ final class HashSet<E> {
     }
 
     private void resize() {
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings({"unchecked", "rawtypes"})
         var newArray = (Node<E>[]) new Node[content.length * 2];
         for (var node : content) { // iterate through all buckets
             if (node == null) continue;

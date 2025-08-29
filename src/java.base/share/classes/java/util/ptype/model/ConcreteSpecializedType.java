@@ -8,13 +8,13 @@ import java.util.ptype.util.HashMap;
 
 sealed abstract class ConcreteSpecializedType permits ClassType, ParameterizedType, RawType {
 
-    @Stable
+//    @Stable
     private HashMap<Class<?>, SpecializedType> superTypes = null;
 
     protected ConcreteSpecializedType() {
     }
 
-    public SpecializedType asSuper(Class<?> type) {
+    public final SpecializedType asSuper(Class<?> type) {
         if (superTypes == null) {
             superTypes = Internal.generateSuperTypes(type, (SpecializedType) this);
         }

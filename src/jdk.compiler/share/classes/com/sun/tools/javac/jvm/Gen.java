@@ -875,6 +875,9 @@ public class Gen extends JCTree.Visitor {
             chk.completionError(tree.pos(), ex);
             code.state.stacksize = 1;
             return items.makeStackItem(pt);
+        } catch (AssertionError e) {
+            System.out.println(tree);
+            throw e;
         } finally {
             this.pt = prevPt;
         }
@@ -921,7 +924,12 @@ public class Gen extends JCTree.Visitor {
         this.pt = tree.sym.erasure(types).getReturnType();
 
         checkDimension(tree.pos(), tree.sym.erasure(types));
-        genMethod(tree, localEnv, false);
+        try {
+            genMethod(tree, localEnv, false);
+        } catch (AssertionError e) {
+            System.out.println(tree);
+            throw e;
+        }
     }
 //where
         /** Generate code for a method.

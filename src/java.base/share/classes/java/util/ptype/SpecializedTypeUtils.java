@@ -24,7 +24,10 @@ public final class SpecializedTypeUtils {
         return builder.toString();
     }
 
+    /// Appends the string representation of a [SpecializedType] to a [StringBuilder]
     ///
+    /// @param builder the builder
+    /// @param type the specialized type
     public static void appendToBuilder(StringBuilder builder, SpecializedType type) {
         Utils.requireNonNull(builder);
         switch (type) {
@@ -267,6 +270,36 @@ public final class SpecializedTypeUtils {
         return false;
     }
     //endregion
+
+    /// Extracts the specialized type information viewed as one of its supertypes.
+    ///
+    /// @param obj the object containing the specialized type
+    /// @param type the supertype we want to see it as
+    /// @return the super specialized type
+    public static SpecializedType extractsAsSuper(Object obj, Class<?> type) {
+        Utils.requireNonNull(obj);
+        Utils.requireNonNull(type);
+        var field = Internal.extractInformationField(obj);
+        if (field.isEmpty()) {
+            return null;
+        }
+        var specializedType = field.get();
+        switch (specializedType) {
+            case ClassType classType:
+                return classType.asSuper(type);
+            case ParameterizedType parameterizedType:
+                return parameterizedType.asSuper(type);
+            case RawType rawType:
+                return rawType.asSuper(type);
+            case ArrayType _:
+            case InnerClassType _:
+            case IntersectionType _:
+            case WildcardType _:
+                throw new IllegalArgumentException("Invalid type: " + stringify(specializedType));
+            default:
+                throw new IllegalArgumentException();
+        }
+    }
 
     private SpecializedTypeUtils() {
         throw new AssertionError();

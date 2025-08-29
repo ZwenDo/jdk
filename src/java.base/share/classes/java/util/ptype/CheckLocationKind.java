@@ -1,6 +1,8 @@
 package java.util.ptype;
 
-/// The kind of location where a [checkCast][#checkCast] is performed.
+import java.util.ptype.model.SpecializedType;
+
+/// The kind of location where a [checkCast][SpecializedTypeUtils#checkCast(Object, SpecializedType)] is performed.
 public enum CheckLocationKind {
     /// The check is performed at the entry of a method.
     ENTRY,

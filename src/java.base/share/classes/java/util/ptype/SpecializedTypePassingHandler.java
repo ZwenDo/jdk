@@ -44,7 +44,7 @@ public final class SpecializedTypePassingHandler {
     ///
     /// @param actualCaller the caller of the current method, or null if we don't need to know the caller.
     /// @return the type arguments for the current method
-    public static SpecializedMethodTypeArguments methodTypeArgs(Class<?> actualCaller) {
+    public static SpecializedMethodTypeArguments methodTypeArguments(Class<?> actualCaller) {
         var instance = instance();
         var args = instance.passedMethodTypeArgs;
         instance.passedMethodTypeArgs = null;
@@ -57,7 +57,7 @@ public final class SpecializedTypePassingHandler {
     /// Returns the argument for the current constructor call.
     ///
     /// @return the argument for the current constructor call
-    public static SpecializedType constructorType() {
+    public static SpecializedType constructorTypeArguments() {
         var instance = instance();
         var args = instance.constructorType;
         instance.constructorType = null;
@@ -90,7 +90,7 @@ public final class SpecializedTypePassingHandler {
     }
 
     private static SpecializedTypePassingHandler instance() {
-        return Thread.currentThread().stpHandler();
+        return new SpecializedTypePassingHandler();//Thread.currentThread().stpHandler();
     }
 
     /// Get the stack walker.

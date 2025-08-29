@@ -23,6 +23,7 @@ public final class ArrayList<E> implements RandomAccess {
     /// Creates a new empty list.
     ///
     /// @return the created list
+    /// @param <E> the type of elements of the list
     @SuppressWarnings("unchecked")
     public static <E> ArrayList<E> of() {
         return (ArrayList<E>) EMPTY;
@@ -32,6 +33,7 @@ public final class ArrayList<E> implements RandomAccess {
     ///
     /// @param array the array
     /// @return the created list
+    /// @param <E> the type of elements of the list
     public static <E> ArrayList<E> of(E[] array) {
         Utils.requireNonNull(array);
         if (array.length == 0) {
