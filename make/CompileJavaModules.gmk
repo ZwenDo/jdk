@@ -117,7 +117,6 @@ $(eval $(call SetupJavaCompilation, $(MODULE), \
     KEEP_ALL_TRANSLATIONS := $(KEEP_ALL_TRANSLATIONS), \
     TARGET_RELEASE := $(TARGET_RELEASE), \
     JAVAC_FLAGS := \
-        -XDenableSpecialization \
         $(DOCLINT) \
         $(JAVAC_FLAGS) \
         --module-source-path $(MODULESOURCEPATH) \
