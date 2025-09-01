@@ -1,7 +1,6 @@
 package java.util.ptype;
 
 import jdk.internal.misc.VM;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 import java.util.ptype.model.*;
 import java.util.ptype.util.Predicate;
@@ -49,13 +48,13 @@ public final class SpecializedTypeUtils {
                 break;
             case ParameterizedType parameterizedType:
                 builder.append(parameterizedType.rawType().getSimpleName());
+                if (parameterizedType.isRaw()) {
+                    break;
+                }
                 builder.append("<");
-                parameterizedType.actualTypeArguments()
+                parameterizedType.typeArguments()
                         .joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
                 builder.append(">");
-                break;
-            case RawType rawType:
-                builder.append(rawType.type().getSimpleName());
                 break;
             case WildcardType wildcard:
                 builder.append('?');
@@ -67,6 +66,9 @@ public final class SpecializedTypeUtils {
                 }
                 var kind = wildcard.isSuper() ? " super " : " extends ";
                 builder.append(kind);
+                break;
+            case ErasedType _:
+                builder.append("erased type");
                 break;
         }
     }
@@ -110,13 +112,9 @@ public final class SpecializedTypeUtils {
         while (currentIndex < indices.length) {
             switch (currentType) {
                 case ParameterizedType p:
-                    currentType = p.actualTypeArguments().get(indices[currentIndex]);
+                    currentType = p.typeArguments().get(indices[currentIndex]);
                     currentIndex++;
                     break;
-                case RawType rt:
-                    throw new NotImplementedException();
-//                    currentType = rawTypeArg(rt.type());
-//                    break;
                 case ArrayType a:
                     currentType = a.componentType();
                     break;
@@ -176,8 +174,6 @@ public final class SpecializedTypeUtils {
                     expectedOuterClass = outerClassType.type();
                 } else if (outerClassArg instanceof ParameterizedType parameterizedType) {
                     expectedOuterClass = parameterizedType.rawType();
-                } else if (outerClassArg instanceof RawType rawType) {
-                    expectedOuterClass = rawType.type();
                 } else {
                     throw new AssertionError("Unexpected outer type: " + innerClassType.outerType());
                 }
@@ -192,10 +188,6 @@ public final class SpecializedTypeUtils {
                 // var cast = (String) obj; (usually (E) obj;)
             case ClassType classType:
                 return classType.type().isAssignableFrom(obj.getClass());
-
-            // var cast = (List) obj;
-            case RawType rawType:
-                return validate(obj, expected, rawType.type());
 
             // var cast = (List<String>) obj;
             case ParameterizedType parameterizedType:
@@ -289,8 +281,6 @@ public final class SpecializedTypeUtils {
                 return classType.asSuper(type);
             case ParameterizedType parameterizedType:
                 return parameterizedType.asSuper(type);
-            case RawType rawType:
-                return rawType.asSuper(type);
             case ArrayType _:
             case InnerClassType _:
             case IntersectionType _:

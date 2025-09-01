@@ -6,9 +6,9 @@ import jdk.internal.vm.annotation.Stable;
 import java.util.ptype.Internal;
 import java.util.ptype.util.HashMap;
 
-sealed abstract class ConcreteSpecializedType permits ClassType, ParameterizedType, RawType {
+sealed abstract class ConcreteSpecializedType permits ClassType, ParameterizedType {
 
-//    @Stable
+    @Stable
     private HashMap<Class<?>, SpecializedType> superTypes = null;
 
     protected ConcreteSpecializedType() {

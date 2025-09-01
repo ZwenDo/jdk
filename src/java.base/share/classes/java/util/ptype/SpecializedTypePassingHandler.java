@@ -24,17 +24,27 @@ public final class SpecializedTypePassingHandler {
 //        )
 //    );
 
-    /// Utility method to simplify AST modification by the compiler when we need to push type arguments for a method
+    /// Utility method to simplify AST modification by the compiler when we need to push type arguments before a method
     /// call.
     ///
-    /// @param prePush1       the code pushing the type arguments
-    /// @param prePush2       the other code pushing the type arguments (usually the arg)
+    /// @param e1       the first expression
+    /// @param e2       the second expression
     /// @param baseExpression the base expression that will use the type arguments
-    /// @param postPush1      the code to push after the call
-    /// @param postPush2      the other code to push after the call
     /// @param <E>            the type of the base expression
     /// @return the result of the base expression
-    public static <E> E e(Void prePush1, Void prePush2, E baseExpression, Void postPush1, Void postPush2) {
+    public static <E> E pre(Void e1, Void e2, E baseExpression) {
+        return baseExpression;
+    }
+
+    /// Utility method to simplify AST modification by the compiler when we need to push type arguments after a method
+    /// call.
+    ///
+    /// @param baseExpression the base expression that will use the type arguments
+    /// @param e1       the first expression
+    /// @param e2       the second expression
+    /// @param <E>            the type of the base expression
+    /// @return the result of the base expression
+    public static <E> E post(E baseExpression, Void e1, Void e2) {
         return baseExpression;
     }
 
@@ -48,7 +58,7 @@ public final class SpecializedTypePassingHandler {
         var instance = instance();
         var args = instance.passedMethodTypeArgs;
         instance.passedMethodTypeArgs = null;
-        if (actualCaller == null) {
+        if (instance.caller == null) {
             return args;
         }
         return instance.caller == actualCaller ? args : null;
@@ -69,9 +79,8 @@ public final class SpecializedTypePassingHandler {
     /// @param arg    the type argument to push
     /// @param caller the expected caller. It will be used when retrieving the arg for comparison
     /// @return null
-    public static Void push(SpecializedMethodTypeArguments arg, Class<?> caller) {
+    public static Void pushMethod(SpecializedMethodTypeArguments arg, Class<?> caller) {
         java.util.ptype.util.Utils.requireNonNull(arg);
-        java.util.ptype.util.Utils.requireNonNull(caller);
         var instance = instance();
         instance.passedMethodTypeArgs = arg;
         instance.caller = caller;
@@ -82,7 +91,7 @@ public final class SpecializedTypePassingHandler {
     ///
     /// @param arg the argument to push
     /// @return null
-    public static Void pushConstructorType(SpecializedType arg) {
+    public static Void pushConstructor(SpecializedType arg) {
         Utils.requireNonNull(arg);
         var instance = instance();
         instance.constructorType = arg;
@@ -90,7 +99,7 @@ public final class SpecializedTypePassingHandler {
     }
 
     private static SpecializedTypePassingHandler instance() {
-        return new SpecializedTypePassingHandler();//Thread.currentThread().stpHandler();
+        return Thread.currentThread().stpHandler();
     }
 
     /// Get the stack walker.

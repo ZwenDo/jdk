@@ -14,6 +14,10 @@ public final class SpecializedMethodTypeArguments implements SpecializedTypeCont
     ///
     /// @param arguments the arguments of the method
     public SpecializedMethodTypeArguments(SpecializedType... arguments) {
+        if (arguments.length == 0) {
+            throw new IllegalArgumentException("Cannot create a specialized method type arguments instance without type arguments");
+        }
+        checkRaw(arguments);
         this.arguments = ArrayList.of(Utils.requireNonNull(arguments));
     }
 
@@ -33,6 +37,15 @@ public final class SpecializedMethodTypeArguments implements SpecializedTypeCont
         arguments.joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
         builder.append(">");
         return builder.toString();
+    }
+
+    private static void checkRaw(SpecializedType[] arguments) {
+        var isRaw = arguments[0] == ErasedType.instance();
+        for (var argument : arguments) {
+            if (argument == ErasedType.instance() != isRaw) {
+                throw new IllegalArgumentException("Cannot create a partially erazed method type arguments instance.");
+            }
+        }
     }
 
 }

@@ -217,7 +217,7 @@ public class Symtab {
     public final Type specializedMethodTypeArgumentsType;
     public final Type specializedTypeContainerType;
     public final Type parameterizedTypeType;
-    public final Type rawTypeType;
+    public final Type erasedTypeType;
     public final Type classTypeType;
     public final Type specializedArrayType;
     public final Type innerClassType;
@@ -624,7 +624,7 @@ public class Symtab {
         specializedMethodTypeArgumentsType = enterClass("java.util.ptype.model.SpecializedMethodTypeArguments");
         specializedTypeContainerType = enterClass("java.util.ptype.model.SpecializedTypeContainer");
         parameterizedTypeType = enterClass("java.util.ptype.model.ParameterizedType");
-        rawTypeType = enterClass("java.util.ptype.model.RawType");
+        erasedTypeType = enterClass("java.util.ptype.model.ErasedType");
         classTypeType = enterClass("java.util.ptype.model.ClassType");
         specializedArrayType = enterClass("java.util.ptype.model.ArrayType");
         innerClassType = enterClass("java.util.ptype.model.InnerClassType");
@@ -672,7 +672,7 @@ public class Symtab {
         synthesizeEmptyInterfaceIfMissing(specializedTypeType);
         synthesizeEmptyInterfaceIfMissing(specializedTypeContainerType);
         synthesizeEmptyInterfaceIfMissing(parameterizedTypeType);
-        synthesizeEmptyInterfaceIfMissing(rawTypeType);
+        synthesizeEmptyInterfaceIfMissing(erasedTypeType);
         synthesizeEmptyInterfaceIfMissing(classTypeType);
         synthesizeEmptyInterfaceIfMissing(specializedArrayType);
         synthesizeEmptyInterfaceIfMissing(innerClassType);

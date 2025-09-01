@@ -58,6 +58,7 @@ import com.sun.tools.javac.code.Type.*;
 import com.sun.tools.javac.comp.Attr;
 import com.sun.tools.javac.comp.AttrContext;
 import com.sun.tools.javac.comp.Env;
+import com.sun.tools.javac.comp.TransParameterizedTypes;
 import com.sun.tools.javac.jvm.*;
 import com.sun.tools.javac.jvm.PoolConstant;
 import com.sun.tools.javac.tree.JCTree;
@@ -816,7 +817,7 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
     /** A base class for Symbols representing types.
      */
     public abstract static class TypeSymbol extends Symbol {
-        private boolean newGenericsExcluded;
+        private byte newGenericsExcluded; // 0 unset | 1 true | -1 false
 
         public TypeSymbol(Kind kind, long flags, Name name, Type type, Symbol owner) {
             super(kind, flags, name, type, owner);
@@ -836,11 +837,15 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
         }
 
         public void excludeFromNewGenerics() {
-            newGenericsExcluded = true;
+            newGenericsExcluded = 1;
         }
 
         public boolean isNewGenericsExcluded() {
-            return newGenericsExcluded;
+            if (newGenericsExcluded == 0) {
+                var result = TransParameterizedTypes.newGenericsExcluded(this);
+                newGenericsExcluded = (byte) (result ? 1 : -1);
+            }
+            return newGenericsExcluded == 1;
         }
 
         /** form a fully qualified name from a name and an owner, after

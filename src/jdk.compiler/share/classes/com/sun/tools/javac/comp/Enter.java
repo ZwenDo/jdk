@@ -503,7 +503,7 @@ public class Enter extends JCTree.Visitor {
         Env<AttrContext> localEnv = classEnv(tree, env);
         typeEnvs.put(c, localEnv);
 
-        if (transParameterizedTypes.newGenericsExcluded(c)) {
+        if (TransParameterizedTypes.newGenericsExcluded(c)) {
             c.excludeFromNewGenerics();
         }
 

@@ -9,28 +9,31 @@ public final class ParameterizedType extends ConcreteSpecializedType implements 
 
     private final Class<?> rawType;
 
-    private final ArrayList<SpecializedType> actualTypeArguments;
+    private final ArrayList<SpecializedType> typeArguments;
+
+    private final boolean isRaw;
 
     /// Creates a new [ParameterizedType].
     ///
     /// @param rawType the raw type
-    /// @param actualTypeArguments the type arguments
-    public ParameterizedType(Class<?> rawType, SpecializedType... actualTypeArguments) {
+    /// @param typeArguments the type arguments
+    public ParameterizedType(Class<?> rawType, SpecializedType... typeArguments) {
         Utils.requireNonNull(rawType);
-        Utils.requireNonNull(actualTypeArguments);
+        Utils.requireNonNull(typeArguments);
+        if (typeArguments.length == 0) {
+            throw new IllegalArgumentException("Cannot create a parameterized type without type arguments");
+        }
+        this.isRaw = isRaw(typeArguments);
         this.rawType = rawType;
-        this.actualTypeArguments = ArrayList.of(actualTypeArguments);
+        this.typeArguments = ArrayList.of(typeArguments);
     }
 
     /// Creates a new [ParameterizedType].
     ///
     /// @param rawType the raw type as a string
-    /// @param actualTypeArguments the type arguments
-    public ParameterizedType(String rawType, SpecializedType... actualTypeArguments) {
-        Utils.requireNonNull(rawType);
-        Utils.requireNonNull(actualTypeArguments);
-        this.rawType = Utils.findClassByName(rawType);
-        this.actualTypeArguments = ArrayList.of(actualTypeArguments);
+    /// @param typeArguments the type arguments
+    public ParameterizedType(String rawType, SpecializedType... typeArguments) {
+        this(Utils.findClassByName(Utils.requireNonNull(rawType)), typeArguments);
     }
 
     /// Gets the raw type.
@@ -43,8 +46,25 @@ public final class ParameterizedType extends ConcreteSpecializedType implements 
     /// Gets the type arguments.
     ///
     /// @return the type arguments
-    public ArrayList<SpecializedType> actualTypeArguments() {
-        return actualTypeArguments;
+    public ArrayList<SpecializedType> typeArguments() {
+        return typeArguments;
+    }
+
+    /// Whether this parameterized type represents a raw type.
+    ///
+    /// @return true if this parameterized type represents a rawtype; false otherwise.
+    public boolean isRaw() {
+        return isRaw;
+    }
+
+    private static boolean isRaw(SpecializedType[] typeArguments) {
+        var isRaw = typeArguments[0] == ErasedType.instance();
+        for (var typeArgument : typeArguments) {
+            if (typeArgument == ErasedType.instance() != isRaw) {
+                throw new IllegalArgumentException("Cannot create a partially erazed parameterized type.");
+            }
+        }
+        return isRaw;
     }
 
     //    public boolean isAssignable(Arg actual, Variance variance) {
