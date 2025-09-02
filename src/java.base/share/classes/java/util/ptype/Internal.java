@@ -30,7 +30,7 @@ public final class Internal {
         try {
             var getter = FIELD_CACHE.get(obj.getClass());
             if (getter == null) {
-                getter = Holder.LOOKUP.findGetter(obj.getClass(), "$typeInformation", SpecializedType.class);
+                getter = Holder.LOOKUP.findGetter(obj.getClass(), "$typeArguments", SpecializedType.class);
                 FIELD_CACHE.put(obj.getClass(), getter);
             }
             return Optional.of((SpecializedType) getter.invoke(obj));

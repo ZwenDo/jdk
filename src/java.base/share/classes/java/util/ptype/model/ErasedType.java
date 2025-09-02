@@ -16,4 +16,8 @@ public final class ErasedType implements SpecializedType {
         if (INSTANCE != null) throw new AssertionError();
     }
 
+    @Override
+    public String toString() {
+        return "ErasedType";
+    }
 }

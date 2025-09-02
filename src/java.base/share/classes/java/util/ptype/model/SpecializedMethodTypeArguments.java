@@ -26,7 +26,7 @@ public final class SpecializedMethodTypeArguments implements SpecializedTypeCont
     /// @param index the index at which get the specialized type.
     /// @return the found index
     public SpecializedType typeArgument(int index) {
-        Objects.checkIndex(arguments.size(), index);
+        Objects.checkIndex(index, arguments.size());
         return arguments.get(index);
     }
 

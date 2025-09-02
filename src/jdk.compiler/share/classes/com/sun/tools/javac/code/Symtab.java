@@ -225,6 +225,7 @@ public class Symtab {
     public final Type wildcardType;
     public final Type specializedTypeUtilsType;
     public final Type specializedTypePassingHandleType;
+    public final Type specializedTypeHashMap;
     public final Type voidObjectType;
     public final Type stackWalkerType;
     public final Type stringConcatFactory;
@@ -632,6 +633,7 @@ public class Symtab {
         wildcardType = enterClass("java.util.ptype.model.WildcardType");
         specializedTypeUtilsType = enterClass("java.util.ptype.SpecializedTypeUtils");
         specializedTypePassingHandleType = enterClass("java.util.ptype.SpecializedTypePassingHandler");
+        specializedTypeHashMap = enterClass("java.util.ptype.util.HashMap");
         voidObjectType = enterClass("java.lang.Void");
         stackWalkerType = enterClass("java.lang.StackWalker");
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
@@ -683,6 +685,7 @@ public class Symtab {
         synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsType);
         synthesizeEmptyInterfaceIfMissing(voidObjectType);
         synthesizeEmptyInterfaceIfMissing(stackWalkerType);
+        synthesizeEmptyInterfaceIfMissing(specializedTypeHashMap);
 
         // Enter a synthetic class that is used to mark internal
         // proprietary classes in ct.sym.  This class does not have a

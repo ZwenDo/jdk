@@ -11,7 +11,7 @@ public final class SpecializedTypePassingHandler {
     private SpecializedMethodTypeArguments passedMethodTypeArgs;
 
     /// Specialized type passed to constructor.
-    private SpecializedType constructorType;
+    private SpecializedType constructorTypeArgs;
 
     /// Field used to identify the class who pushed the argument.
     private Class<?> caller;
@@ -69,8 +69,8 @@ public final class SpecializedTypePassingHandler {
     /// @return the argument for the current constructor call
     public static SpecializedType constructorTypeArguments() {
         var instance = instance();
-        var args = instance.constructorType;
-        instance.constructorType = null;
+        var args = instance.constructorTypeArgs;
+        instance.constructorTypeArgs = null;
         return args;
     }
 
@@ -80,7 +80,7 @@ public final class SpecializedTypePassingHandler {
     /// @param caller the expected caller. It will be used when retrieving the arg for comparison
     /// @return null
     public static Void pushMethod(SpecializedMethodTypeArguments arg, Class<?> caller) {
-        java.util.ptype.util.Utils.requireNonNull(arg);
+        Utils.requireNonNull(arg);
         var instance = instance();
         instance.passedMethodTypeArgs = arg;
         instance.caller = caller;
@@ -94,7 +94,7 @@ public final class SpecializedTypePassingHandler {
     public static Void pushConstructor(SpecializedType arg) {
         Utils.requireNonNull(arg);
         var instance = instance();
-        instance.constructorType = arg;
+        instance.constructorTypeArgs = arg;
         return null;
     }
 

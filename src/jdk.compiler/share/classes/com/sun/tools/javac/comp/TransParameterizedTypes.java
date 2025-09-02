@@ -99,7 +99,7 @@ public final class TransParameterizedTypes {
 
         public final Name objectTypeArgumentsFieldName = names.fromString("$typeArguments");
 
-        public final Name rawTypeClassInstance = names.fromString("$RAW_TYPE_INSTANCE");
+        public final Name computeSuperMethodName = names.fromString("$computeSuper");
 
         public final Name constructorTypeArgumentsLocalVarName = names.fromString("constructorArgument");
 
@@ -205,7 +205,7 @@ public final class TransParameterizedTypes {
                 syms.classType.tsym
         );
 
-        public final Symbol.MethodSymbol methodTypeArgsConstructor = new Symbol.MethodSymbol(
+        public final Symbol.MethodSymbol specializedMethodTypeArgsConstructor = new Symbol.MethodSymbol(
                 PUBLIC | VARARGS,
                 names.init,
                 new Type.MethodType(
@@ -301,6 +301,27 @@ public final class TransParameterizedTypes {
                         syms.methodClass
                 ),
                 syms.specializedTypePassingHandleType.tsym
+        );
+
+        public final Symbol.MethodSymbol hashMapConstructor = new Symbol.MethodSymbol(
+                PUBLIC | VARARGS,
+                names.init,
+                new Type.MethodType(
+                        List.of(types.makeArrayType(syms.objectType)),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.specializedTypeHashMap.tsym
+        );
+
+        public final Type computeSuperMapType = types.subst(
+                syms.specializedTypeHashMap,
+                syms.specializedTypeHashMap.getTypeArguments(),
+                List.of(
+                        types.subst(syms.classType, syms.classType.getTypeArguments(), List.of(new Type.WildcardType(syms.objectType, BoundKind.UNBOUND, syms.boundClass))),
+                        syms.specializedTypeType
+                )
         );
 
         public final Symbol.OperatorSymbol objectEqOperator = operators
@@ -410,19 +431,25 @@ public final class TransParameterizedTypes {
                 } else {
                     typeParameterScopes.pushClassGroup(getTypeArguments(tree.sym));
                 }
-                // for classes, we prepare the list of supertypes to init in the constructor
-                if (!tree.sym.isInterface()) {
-                    superTypes = prepareScopes(tree);
-                }
+                superTypes = prepareScopes(tree);
             }
 
             rewriteDefs(tree);
 
             // last thing is to add the field if needed
-            if (isParameterized(tree.sym) && !tree.sym.isInterface()) {
-                tree.defs = tree.defs.prepend(make.VarDef(currentClassArgField, null));
-                currentClass.members().enterIfAbsent(currentClassArgField);
+            if (isParameterized(tree.sym)) {
+                if (!superTypes.isEmpty()) {
+                    var computeSuper = computeSuperMethod();
+                    tree.defs = tree.defs.prepend(computeSuper);
+                    currentClass.members().enterIfAbsent(computeSuper.sym);
+                }
+
+                if (!tree.sym.isInterface()) {
+                    tree.defs = tree.defs.prepend(make.VarDef(currentClassArgField, null));
+                    currentClass.members().enterIfAbsent(currentClassArgField);
+                }
             }
+
         } finally {
             if (isParameterized(tree.sym)) {
                 typeParameterScopes.pop();
@@ -735,42 +762,57 @@ public final class TransParameterizedTypes {
         method.body.stats = buffer.toList();
     }
 
-    /**
-     * This method is called during a constructor rewriting process. It Generates code filling the global arg map with
-     * the type information of the object being created.
-     *
-     * @param argsVariable the variable that contains the type arguments of the constructor
-     */
-    private void fillArgMap(
-            ListBuffer<JCTree.JCStatement> instructions,
-            Symbol.VarSymbol argsVariable,
-            Symbol.VarSymbol constructorArgsVariable
-    ) {
-        // first, we put the current class type parameters in the map
-        var call = instanceMethodInvocation(constantHolder().argStackWalkerMethod, constructorArgsVariable);
-        call.args = List.of(
-                make.Ident(argsVariable),
-                make.ClassLiteral(currentClass.type)
+    private JCTree.JCMethodDecl computeSuperMethod() {
+        var symbol = new Symbol.MethodSymbol(
+                PRIVATE | STATIC,
+                constantHolder().computeSuperMethodName,
+                new Type.MethodType(
+                        List.of(syms.specializedTypeType),
+                        constantHolder().computeSuperMapType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                currentClass
         );
-        instructions.append(make.Exec(call));
 
-        // then, we put all the supertypes we detected
+        var methodDef = make.MethodDef(
+                symbol,
+                make.Block(0L, List.nil())
+        );
+
+        typeParameterScopes.pushComputeSuperGroup(methodDef.params.head.sym);
+        var old = typeParameterScopeGroupState;
+        typeParameterScopeGroupState = typeParameterScopes.newState(symbol);
+        try {
+            methodDef.body.stats = List.of(make.Return(computeMap()));
+        } finally {
+            typeParameterScopeGroupState = old;
+            typeParameterScopes.pop();
+        }
+
+        return methodDef;
+    }
+
+    private JCTree.JCExpression computeMap() {
+        var call = constructorInvocation(constantHolder().hashMapConstructor);
+        var args = new ListBuffer<JCTree.JCExpression>();
         superTypes.forEach(superType -> {
-            // this is the constructorArgs.add(...) call;
-            var c = instanceMethodInvocation(constantHolder().argStackWalkerMethod, constructorArgsVariable);
+            args.append(make.ClassLiteral(superType));
 
             // TODO we might need to check if the type is parameterized to handle raw inheritance
             // this is the ParameterizedType.of(...) call;
             var isAccessible = isAccessible(superType.tsym);
-            var argFactory = parameterizedTypeConstructorSelector(isAccessible);
+            var paramType = parameterizedTypeConstructorSelector(isAccessible);
 
-            argFactory.args = superType.getTypeArguments().map(argLiteralGenerator::generateSuperArgs);
-            argFactory.args = argFactory.args.prepend(classArgParam((Symbol.ClassSymbol) superType.tsym, isAccessible));
+            paramType.args = superType.getTypeArguments().map(argLiteralGenerator::generateSuperArgs);
+            paramType.args = paramType.args.prepend(classArgParam((Symbol.ClassSymbol) superType.tsym, isAccessible));
 
-            c.args = List.of(argFactory, make.ClassLiteral(superType));
-
-            instructions.append(make.Exec(c));
+            args.append(paramType);
         });
+
+        call.args = args.toList();
+
+        return call;
     }
 
     private void adjustConstructorBody(
@@ -834,11 +876,14 @@ public final class TransParameterizedTypes {
 
             var isParameterizedMethod = isParameterized(sym);
             var isConstructorFromParameterizedClass = sym.isConstructor() && isParameterized(sym.owner);
-            if (sym.owner.type.tsym.isNewGenericsExcluded() || !(isParameterizedMethod || isConstructorFromParameterizedClass)) return;
+            if (sym.owner.type.tsym.isNewGenericsExcluded() || !(isParameterizedMethod || isConstructorFromParameterizedClass))
+                return;
 
-            var pushMethod = isParameterizedMethod ? pushMethodCode(tree, sym) : nullLiteral();
+            var pushMethod = isParameterizedMethod
+                    ? pushMethodCode(tree.typeargs, tree.meth.type.asMethodType(), sym)
+                    : nullLiteral();
             var pushConstructor = isConstructorFromParameterizedClass
-                    ? pushConstructorCode(tree, sym)
+                    ? pushSuperOrThisCode(tree, sym)
                     : nullLiteral();
             if (tree.args.isEmpty()) {
                 // If the method has a void type, we can just add instructions that push the information right
@@ -860,29 +905,70 @@ public final class TransParameterizedTypes {
             } else {
                 // if the method has arguments, we need to push the information after the evaluation of the last arg.
                 // to do so, we use the 'post' method
-                debug("here ?");
                 tree.args = insertPostCall(pushMethod, pushConstructor, tree.args);
-                debug("there ?");
             }
         }
 
-        private JCTree.JCExpression pushMethodCode(JCTree.JCMethodInvocation tree, Symbol.MethodSymbol sym) {
+        @Override
+        public void visitNewClass(JCTree.JCNewClass tree) {
+            super.visitNewClass(tree);
+
+            var owner = tree.constructor.owner;
+            if (owner.type.tsym.isNewGenericsExcluded()) return;
+
+            var sym = (Symbol.MethodSymbol) tree.constructor;
+            var isParameterizedMethod = isParameterized(sym);
+            var isConstructorFromParameterizedClass = sym.isConstructor() && isParameterized(sym.owner);
+            if (!isParameterizedMethod && !isConstructorFromParameterizedClass) return;
+
+            var explicitTypes = tree.typeargs;
+            var pushMethod = isParameterizedMethod ? pushMethodCode(explicitTypes, tree.constructorType.asMethodType(), sym) : nullLiteral();
+            var pushConstructor = isConstructorFromParameterizedClass
+                    ? pushConstructorCode(tree.type.getTypeArguments(), sym)
+                    : nullLiteral();
+
+            if (tree.args.isEmpty()) {
+                // we are calling a method that returns a value. We can use the 'pre' method
+                result = preCall(pushMethod, pushConstructor, tree);
+            } else {
+                // if the method has arguments, we need to push the information after the evaluation of the last arg.
+                // to do so, we use the 'post' method
+                tree.args = insertPostCall(pushMethod, pushConstructor, tree.args);
+            }
+        }
+
+        private JCTree.JCExpression pushMethodCode(List<JCTree.JCExpression> explicitTypes, Type.MethodType method, Symbol.MethodSymbol sym) {
             var generatedArgs = basicMethodArgConstruction(
                     sym,
-                    tree.typeargs,
-                    tree.meth.type.asMethodType().inferenceMapping
+                    explicitTypes,
+                    method.inferenceMapping
             );
-            var actualArgs = generatedArgs.orElseGet(() -> {
-                throw new UnsupportedOperationException("Rawtypes not handled");
-            });
-
+            var pushedExpression = generatedArgs.<JCTree.JCExpression>map(l -> {
+                        var call = constructorInvocation(constantHolder().specializedMethodTypeArgsConstructor);
+                        call.args = l;
+                        return call;
+                    })
+                    .orElseGet(TransParameterizedTypes.this::nullLiteral);
             var push = staticMethodInvocation(constantHolder().pushMethod);
             var caller = needsCallerInfo(sym) ? make.ClassLiteral(currentClass) : nullLiteral();
-            push.args = List.of(actualArgs, caller);
+            push.args = List.of(pushedExpression, caller);
             return push;
         }
 
-        private JCTree.JCExpression pushConstructorCode(JCTree.JCMethodInvocation tree, Symbol.MethodSymbol called) {
+        private JCTree.JCExpression pushConstructorCode(List<Type> types, Symbol.MethodSymbol sym) {
+            if (types.isEmpty()) {
+                return nullLiteral();
+            }
+            var args = types.map(argLiteralGenerator::generateArgs);
+            var call = constructorInvocation(constantHolder().parameterizedTypeConstructor);
+            call.args = args.prepend(make.ClassLiteral(sym.owner.type));
+
+            var push = staticMethodInvocation(constantHolder().pushConstructor);
+            push.args = List.of(call);
+            return push;
+        }
+
+        private JCTree.JCExpression pushSuperOrThisCode(JCTree.JCMethodInvocation tree, Symbol.MethodSymbol called) {
             var push = staticMethodInvocation(constantHolder().pushConstructor);
 
             var methodName = Objects.requireNonNull(TreeInfo.name(tree.meth));
@@ -930,27 +1016,26 @@ public final class TransParameterizedTypes {
 
         }
 
-        private Optional<JCTree.JCExpression> basicMethodArgConstruction(
+        private Optional<List<JCTree.JCExpression>> basicMethodArgConstruction(
                 Symbol sym,
                 List<JCTree.JCExpression> explicitTypes,
                 List<Pair<Type, Type>> inferredTypes
         ) {
-            var call = constructorInvocation(constantHolder().methodTypeArgsConstructor);
             // by default, we try to use the provided type arguments Foo.<String>foo();, but if none are provided, we
             // use the inferred types `String s = foo();`
             if (!explicitTypes.isEmpty()) { // provided type arguments
-                call.args = explicitTypes.map(t -> argLiteralGenerator.generateArgs(t.type));
-                return Optional.of(call);
+                var list = explicitTypes.map(t -> argLiteralGenerator.generateArgs(t.type));
+                return Optional.of(list);
             }
 
             if (inferredTypes == null) { // special case for rawtype call, we do nothing
-                return Optional.empty(); // TODO do something
+                return Optional.empty();
             }
 
-            call.args = sym.type
+            var list = sym.type
                     .getTypeArguments()
                     .map(t -> argLiteralGenerator.generateArgs(computeTypeFromInference(inferredTypes, t)));
-            return Optional.of(call);
+            return Optional.of(list);
         }
 
         private Type computeTypeFromInference(List<Pair<Type, Type>> inferredTypes, Type t) {
@@ -1244,14 +1329,6 @@ public final class TransParameterizedTypes {
             groups.add(new InterfaceGroup(variableParams, currentClass, depth));
         }
 
-        public void enterMethod() {
-            depth++;
-        }
-
-        public void exitMethod() {
-            depth--;
-        }
-
         public void pushMethodGroup(java.util.List<? extends Symbol> variableParams, Symbol.MethodSymbol owner) {
             groups.add(new MethodGroup(variableParams, depth, owner));
         }
@@ -1261,6 +1338,19 @@ public final class TransParameterizedTypes {
             // class group.
             var origin = groups.getLast();
             groups.add(new ConstructorGroup(origin.variableParams(), depth, constructor));
+        }
+
+        public void pushComputeSuperGroup(Symbol.VarSymbol variable) {
+            var origin = groups.getLast();
+            groups.add(new ComputeSuperGroup(origin.variableParams(), depth, variable));
+        }
+
+        public void enterMethod() {
+            depth++;
+        }
+
+        public void exitMethod() {
+            depth--;
         }
 
         public void pop() {
@@ -1406,7 +1496,7 @@ public final class TransParameterizedTypes {
                 this.method = method;
                 this.variable = createVariable(
                         constantHolder().methodTypeArgumentsLocalVarName,
-                        syms.specializedTypeType,
+                        syms.specializedMethodTypeArgumentsType,
                         method
                 );
             }
@@ -1441,7 +1531,7 @@ public final class TransParameterizedTypes {
                 statementConsumer.accept(make.Exec(assign));
 
                 // if (methodTypeArgs == null) methodTypeArgs = *raw type arguments;
-                var mArgsFallback = constructorInvocation(constantHolder().methodTypeArgsConstructor);
+                var mArgsFallback = constructorInvocation(constantHolder().specializedMethodTypeArgsConstructor);
                 mArgsFallback.args = rawMethodTypeArguments(method);
                 statementConsumer.accept(
                         argsFallback(
@@ -1586,6 +1676,41 @@ public final class TransParameterizedTypes {
 
             @Override
             protected boolean shouldSaveInLocal() {
+                return false;
+            }
+        }
+
+        private final class ComputeSuperGroup extends Base {
+
+            private final Symbol.VarSymbol variable;
+
+            private ComputeSuperGroup(
+                    java.util.List<? extends Symbol> variableParams,
+                    int depth,
+                    Symbol.VarSymbol variable
+            ) {
+                super(variableParams, depth);
+                this.variable = variable;
+            }
+
+
+            @Override
+            protected boolean shouldSaveInLocal() {
+                return false;
+            }
+
+            @Override
+            public void declaration(Symbol.VarSymbol declarationVariable, Consumer<JCTree.JCStatement> statementConsumer) {
+
+            }
+
+            @Override
+            public Symbol.VarSymbol variable(Symbol.MethodSymbol currentMethod) {
+                return variable;
+            }
+
+            @Override
+            public boolean shouldGenerate(boolean usedInState, int currentDepth) {
                 return false;
             }
         }

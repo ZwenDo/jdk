@@ -79,14 +79,14 @@ public final class ArrayList<E> implements RandomAccess {
         switch (array.length) {
             case 0: break;
             case 1:
-                builder.append(array[0]);
+                consumer.accept(builder,array[0]);
                 break;
             default:
                 for (var i = 0; i < array.length - 1; i++) {
                     consumer.accept(builder, array[i]);
                     builder.append(separator);
                 }
-                builder.append(array[array.length - 1]);
+                consumer.accept(builder,array[array.length - 1]);
         }
     }
 
