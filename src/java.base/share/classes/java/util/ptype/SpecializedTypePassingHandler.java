@@ -80,7 +80,6 @@ public final class SpecializedTypePassingHandler {
     /// @param caller the expected caller. It will be used when retrieving the arg for comparison
     /// @return null
     public static Void pushMethod(SpecializedMethodTypeArguments arg, Class<?> caller) {
-        Utils.requireNonNull(arg);
         var instance = instance();
         instance.passedMethodTypeArgs = arg;
         instance.caller = caller;

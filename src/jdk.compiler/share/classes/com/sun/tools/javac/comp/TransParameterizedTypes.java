@@ -80,6 +80,7 @@ public final class TransParameterizedTypes {
      * moved to the constructor to be able to access the method parameters.
      */
     private ArrayList<JCTree.JCStatement> inlineAndBlockDecls;
+    private ArrayList<JCTree.JCStatement> inlineStaticBlockDecls;
 
     /**
      * If we are visiting a class, this field contains all the supertypes for which we need to generate an arg in the
@@ -408,6 +409,7 @@ public final class TransParameterizedTypes {
     private void rewriteClass(JCTree.JCClassDecl tree) {
         var oldCurrentClassTree = currentClassTree;
         var oldInlineAndBlockDecls = inlineAndBlockDecls;
+        var oldInlineStaticBlockDecls = inlineStaticBlockDecls;
         var oldTypeParameterScopes = typeParameterScopes;
         var oldTypeMappingScope = typeMappingScope;
         var oldSuperTypes = superTypes;
@@ -417,6 +419,7 @@ public final class TransParameterizedTypes {
             currentClass = tree.sym;
             currentClassTree = tree;
             inlineAndBlockDecls = new ArrayList<>();
+            inlineStaticBlockDecls = new ArrayList<>();
             // static classes cannot access the outer class type parameters, so we remove them
             if (tree.sym.isStatic()) {
                 typeParameterScopes = new ParameterizedScope();
@@ -435,6 +438,7 @@ public final class TransParameterizedTypes {
             }
 
             rewriteDefs(tree);
+            rewriteStaticInitializer();
 
             // last thing is to add the field if needed
             if (isParameterized(tree.sym)) {
@@ -457,6 +461,7 @@ public final class TransParameterizedTypes {
             currentClass = oldCurrentClassTree != null ? oldCurrentClassTree.sym : null;
             currentClassTree = oldCurrentClassTree;
             inlineAndBlockDecls = oldInlineAndBlockDecls;
+            inlineStaticBlockDecls = oldInlineStaticBlockDecls;
             typeParameterScopes = oldTypeParameterScopes;
             typeMappingScope = oldTypeMappingScope;
             superTypes = oldSuperTypes;
@@ -598,6 +603,7 @@ public final class TransParameterizedTypes {
 
     private void rewriteDefs(JCTree.JCClassDecl tree) {
         var filteredDefs = filteredDefinitions(tree);
+        tree.defs = filteredDefs;
         filteredDefs.forEach(member -> {
             switch (member.getTag()) {
                 case METHODDEF -> {
@@ -614,8 +620,6 @@ public final class TransParameterizedTypes {
 
                 // fields init have been moved to constructors EXCEPT if we are in an ignored class
                 case VARDEF -> parameterizedMethodCallVisitor.visitField((JCTree.JCVariableDecl) member);
-                // blocks here can only be static blocks
-                case BLOCK -> parameterizedMethodCallVisitor.visitClassBlock((JCTree.JCBlock) member);
 
                 default -> throw new AssertionError("Unexpected member type: " + member.getTag());
             }
@@ -642,8 +646,12 @@ public final class TransParameterizedTypes {
             switch (member.getTag()) {
                 case VARDEF -> {
                     var field = (JCTree.JCVariableDecl) member;
-                    if (!field.sym.isStatic() && field.init != null) { // we gather all instance fields with inits
-                        inlineAndBlockDecls.add(make.Assignment(field.sym, field.init));
+                    if (field.init != null) { // we gather all fields with inits
+                        if (field.sym.isStatic()) {
+                            inlineStaticBlockDecls.add(make.Assignment(field.sym, field.init));
+                        } else {
+                            inlineAndBlockDecls.add(make.Assignment(field.sym, field.init));
+                        }
                         field.init = null;
                     }
                     buffer.add(field);
@@ -651,15 +659,52 @@ public final class TransParameterizedTypes {
                 case BLOCK -> {
                     var block = (JCTree.JCBlock) member;
                     if ((block.flags & Flags.STATIC) != 0) { // static blocks are ok
-                        buffer.add(block);
+                        inlineStaticBlockDecls.addAll(block.stats);
                     } else { // we totally remove the instance blocks
-                        inlineAndBlockDecls.add(block);
+                        inlineAndBlockDecls.addAll(block.stats);
                     }
                 }
                 default -> buffer.add(member);
             }
         });
         return buffer.toList();
+    }
+
+    private void rewriteStaticInitializer() {
+        if (inlineStaticBlockDecls.isEmpty()) return;
+        var clinit = new Symbol.MethodSymbol(
+                STATIC,
+                names.clinit,
+                new Type.MethodType(
+                        List.nil(), syms.voidType,
+                        List.nil(), syms.methodClass),
+                currentClass
+        );
+
+        var buffer = new ListBuffer<JCTree.JCStatement>();
+
+        var methodPop = staticMethodInvocation(constantHolder().methodTypeArgumentsAccessMethod);
+        methodPop.args = List.of(nullLiteral());
+        var methodLocalVar = createVariable(constantHolder().methodTypeArgumentsLocalVarName, syms.specializedMethodTypeArgumentsType, clinit);
+        buffer.add(make.VarDef(methodLocalVar, methodPop));
+
+        var constructorPop = staticMethodInvocation(constantHolder().constructorTypeArgumentsAccessMethod);
+        var constructorLocalVar = createVariable(constantHolder().constructorTypeArgumentsLocalVarName, syms.specializedTypeType, clinit);
+        buffer.add(make.VarDef(constructorLocalVar, constructorPop));
+
+        buffer.addAll(inlineStaticBlockDecls);
+
+        // because we know that the class is always loaded either by a static access (method or field) or a constructor
+        // call, we can assume that no callerClass is needed, and therefore we can push null
+        var methodPush = staticMethodInvocation(constantHolder().pushMethod);
+        methodPush.args = List.of(make.Ident(methodLocalVar), nullLiteral());
+        buffer.add(make.Exec(methodPush));
+
+        var constructorPush = staticMethodInvocation(constantHolder().pushConstructor);
+        constructorPush.args = List.of(make.Ident(constructorLocalVar));
+        buffer.add(make.Exec(constructorPush));
+
+        currentClassTree.defs = currentClassTree.defs.prepend(make.Block(STATIC, buffer.toList()));
     }
     //endregion
 
