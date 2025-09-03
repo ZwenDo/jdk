@@ -28,7 +28,7 @@ public final class TransParameterizedTypes {
 
     private final boolean enabled;
 
-    private final InstructionVisitor parameterizedMethodCallVisitor;
+    private final InstructionVisitor instructionVisitor;
     private final ArgLiteralGenerator argLiteralGenerator;
     private ConstantHolder constantHolder;
 
@@ -80,7 +80,6 @@ public final class TransParameterizedTypes {
      * moved to the constructor to be able to access the method parameters.
      */
     private ArrayList<JCTree.JCStatement> inlineAndBlockDecls;
-    private ArrayList<JCTree.JCStatement> inlineStaticBlockDecls;
 
     /**
      * If we are visiting a class, this field contains all the supertypes for which we need to generate an arg in the
@@ -351,7 +350,7 @@ public final class TransParameterizedTypes {
     private TransParameterizedTypes(Context context) {
         context.put(typeReifierKey, this);
         make = TreeMaker.instance(context);
-        parameterizedMethodCallVisitor = new InstructionVisitor();
+        instructionVisitor = new InstructionVisitor();
         translator = new Translator();
         log = Log.instance(context);
         syms = Symtab.instance(context);
@@ -421,7 +420,6 @@ public final class TransParameterizedTypes {
     private void rewriteClass(JCTree.JCClassDecl tree) {
         var oldCurrentClassTree = currentClassTree;
         var oldInlineAndBlockDecls = inlineAndBlockDecls;
-        var oldInlineStaticBlockDecls = inlineStaticBlockDecls;
         var oldTypeParameterScopes = typeParameterScopes;
         var oldTypeMappingScope = typeMappingScope;
         var oldSuperTypes = superTypes;
@@ -431,7 +429,6 @@ public final class TransParameterizedTypes {
             currentClass = tree.sym;
             currentClassTree = tree;
             inlineAndBlockDecls = new ArrayList<>();
-            inlineStaticBlockDecls = new ArrayList<>();
             // static classes cannot access the outer class type parameters, so we remove them
             if (tree.sym.isStatic()) {
                 typeParameterScopes = new ParameterizedScope();
@@ -450,7 +447,6 @@ public final class TransParameterizedTypes {
             }
 
             rewriteDefs(tree);
-            rewriteStaticInitializer();
 
             // last thing is to add the field if needed
             if (isParameterized(tree.sym)) {
@@ -473,7 +469,6 @@ public final class TransParameterizedTypes {
             currentClass = oldCurrentClassTree != null ? oldCurrentClassTree.sym : null;
             currentClassTree = oldCurrentClassTree;
             inlineAndBlockDecls = oldInlineAndBlockDecls;
-            inlineStaticBlockDecls = oldInlineStaticBlockDecls;
             typeParameterScopes = oldTypeParameterScopes;
             typeMappingScope = oldTypeMappingScope;
             superTypes = oldSuperTypes;
@@ -614,9 +609,8 @@ public final class TransParameterizedTypes {
     }
 
     private void rewriteDefs(JCTree.JCClassDecl tree) {
-        var filteredDefs = filteredDefinitions(tree);
-        tree.defs = filteredDefs;
-        filteredDefs.forEach(member -> {
+        tree.defs = filteredDefinitions(tree);
+        tree.defs.forEach(member -> {
             switch (member.getTag()) {
                 case METHODDEF -> {
                     var method = (JCTree.JCMethodDecl) member;
@@ -630,8 +624,10 @@ public final class TransParameterizedTypes {
 
                 case CLASSDEF -> rewriteClass((JCTree.JCClassDecl) member);
 
-                // fields init have been moved to constructors EXCEPT if we are in an ignored class
-                case VARDEF -> parameterizedMethodCallVisitor.visitField((JCTree.JCVariableDecl) member);
+                // fields init have been moved to constructors and static blocks, we have nothing to do
+                case VARDEF -> {}
+
+                case BLOCK ->  instructionVisitor.visitStaticBlock((JCTree.JCBlock) member);
 
                 default -> throw new AssertionError("Unexpected member type: " + member.getTag());
             }
@@ -654,13 +650,14 @@ public final class TransParameterizedTypes {
     private List<JCTree> filteredDefinitions(JCTree.JCClassDecl tree) {
         if (!isParameterized(tree.sym)) return tree.defs;
         var buffer = new ListBuffer<JCTree>();
+        var staticBlock = new ListBuffer<JCTree.JCStatement>();
         tree.defs.forEach(member -> {
             switch (member.getTag()) {
                 case VARDEF -> {
                     var field = (JCTree.JCVariableDecl) member;
                     if (field.init != null) { // we gather all fields with inits
                         if (field.sym.isStatic()) {
-                            inlineStaticBlockDecls.add(make.Assignment(field.sym, field.init));
+                            staticBlock.add(make.Assignment(field.sym, field.init));
                         } else {
                             inlineAndBlockDecls.add(make.Assignment(field.sym, field.init));
                         }
@@ -671,7 +668,7 @@ public final class TransParameterizedTypes {
                 case BLOCK -> {
                     var block = (JCTree.JCBlock) member;
                     if ((block.flags & Flags.STATIC) != 0) { // static blocks are ok
-                        inlineStaticBlockDecls.addAll(block.stats);
+                        staticBlock.addAll(block.stats);
                     } else { // we totally remove the instance blocks
                         inlineAndBlockDecls.addAll(block.stats);
                     }
@@ -679,44 +676,10 @@ public final class TransParameterizedTypes {
                 default -> buffer.add(member);
             }
         });
+        if (staticBlock.nonEmpty()) {
+            buffer.append(make.Block(STATIC, staticBlock.toList()));
+        }
         return buffer.toList();
-    }
-
-    private void rewriteStaticInitializer() {
-        if (inlineStaticBlockDecls.isEmpty()) return;
-        var clinit = new Symbol.MethodSymbol(
-                STATIC,
-                names.clinit,
-                new Type.MethodType(
-                        List.nil(), syms.voidType,
-                        List.nil(), syms.methodClass),
-                currentClass
-        );
-
-        var buffer = new ListBuffer<JCTree.JCStatement>();
-
-        var methodPop = staticMethodInvocation(constantHolder().methodTypeArgumentsAccessMethod);
-        methodPop.args = List.of(nullLiteral());
-        var methodLocalVar = createVariable(constantHolder().methodTypeArgumentsLocalVarName, syms.specializedMethodTypeArgumentsType, clinit);
-        buffer.add(make.VarDef(methodLocalVar, methodPop));
-
-        var constructorPop = staticMethodInvocation(constantHolder().constructorTypeArgumentsAccessMethod);
-        var constructorLocalVar = createVariable(constantHolder().constructorTypeArgumentsLocalVarName, syms.specializedTypeType, clinit);
-        buffer.add(make.VarDef(constructorLocalVar, constructorPop));
-
-        buffer.addAll(inlineStaticBlockDecls);
-
-        // because we know that the class is always loaded either by a static access (method or field) or a constructor
-        // call, we can assume that no callerClass is needed, and therefore we can push null
-        var methodPush = staticMethodInvocation(constantHolder().pushMethod);
-        methodPush.args = List.of(make.Ident(methodLocalVar), nullLiteral());
-        buffer.add(make.Exec(methodPush));
-
-        var constructorPush = staticMethodInvocation(constantHolder().pushConstructor);
-        constructorPush.args = List.of(make.Ident(constructorLocalVar));
-        buffer.add(make.Exec(constructorPush));
-
-        currentClassTree.defs = currentClassTree.defs.prepend(make.Block(STATIC, buffer.toList()));
     }
     //endregion
 
@@ -738,7 +701,7 @@ public final class TransParameterizedTypes {
             }
             typeParameterScopeGroupState = typeParameterScopes.newState(method.sym);
 
-            parameterizedMethodCallVisitor.visitRegularMethod(method);
+            instructionVisitor.visitRegularMethod(method);
 
             adjustRegularMethodBody(method);
 
@@ -777,7 +740,7 @@ public final class TransParameterizedTypes {
             }
             typeParameterScopeGroupState = typeParameterScopes.newState(method.sym);
 
-            parameterizedMethodCallVisitor.visitConstructor(method, argsVariable);
+            instructionVisitor.visitConstructor(method, argsVariable);
 
             adjustConstructorBody(method, argsVariable, shouldInitializeArgField);
 
@@ -1000,6 +963,47 @@ public final class TransParameterizedTypes {
             result = tree;
         }
 
+        @Override
+        public void visitBlock(JCTree.JCBlock tree) {
+            super.visitBlock(tree);
+            if (!tree.isStatic() || tree.stats.isEmpty()) return;
+            System.out.println(tree.stats);
+
+            var clinit = new Symbol.MethodSymbol(
+                    STATIC,
+                    names.clinit,
+                    new Type.MethodType(
+                            List.nil(), syms.voidType,
+                            List.nil(), syms.methodClass),
+                    currentClass
+            );
+
+            var buffer = new ListBuffer<JCTree.JCStatement>();
+
+            var methodPop = staticMethodInvocation(constantHolder().methodTypeArgumentsAccessMethod);
+            methodPop.args = List.of(nullLiteral());
+            var methodLocalVar = createVariable(constantHolder().methodTypeArgumentsLocalVarName, syms.specializedMethodTypeArgumentsType, clinit);
+            buffer.add(make.VarDef(methodLocalVar, methodPop));
+
+            var constructorPop = staticMethodInvocation(constantHolder().constructorTypeArgumentsAccessMethod);
+            var constructorLocalVar = createVariable(constantHolder().constructorTypeArgumentsLocalVarName, syms.specializedTypeType, clinit);
+            buffer.add(make.VarDef(constructorLocalVar, constructorPop));
+
+            buffer.addAll(tree.stats);
+
+            // because we know that the class is always loaded either by a static access (method or field) or a constructor
+            // call, we can assume that no callerClass is needed, and therefore we can push null
+            var methodPush = staticMethodInvocation(constantHolder().pushMethod);
+            methodPush.args = List.of(make.Ident(methodLocalVar), nullLiteral());
+            buffer.add(make.Exec(methodPush));
+
+            var constructorPush = staticMethodInvocation(constantHolder().pushConstructor);
+            constructorPush.args = List.of(make.Ident(constructorLocalVar));
+            buffer.add(make.Exec(constructorPush));
+
+            tree.stats = buffer.toList();
+        }
+
         private JCTree.JCExpression pushMethodCode(List<JCTree.JCExpression> explicitTypes, Type.MethodType method, Symbol.MethodSymbol sym) {
             var generatedArgs = basicMethodArgConstruction(
                     sym,
@@ -1058,7 +1062,7 @@ public final class TransParameterizedTypes {
         }
 
         public void visitRegularMethod(JCTree.JCMethodDecl method) {
-            method.accept(this);
+            visitMethodDef(method);
         }
 
         public void visitConstructor(JCTree.JCMethodDecl method, Symbol.VarSymbol constructorArgsVariable) {
@@ -1071,12 +1075,8 @@ public final class TransParameterizedTypes {
             }
         }
 
-        public void visitField(JCTree.JCVariableDecl field) {
-
-        }
-
-        public void visitClassBlock(JCTree.JCBlock block) {
-
+        public void visitStaticBlock(JCTree.JCBlock block) {
+            visitBlock(block);
         }
 
         private Optional<List<JCTree.JCExpression>> basicMethodArgConstruction(
