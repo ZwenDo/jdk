@@ -42,10 +42,6 @@ public final class SpecializedTypeUtils {
                 builder.append('.');
                 appendToBuilder(builder, innerClassType.innerType());
                 break;
-            case IntersectionType intersection:
-                intersection.bounds()
-                        .joinTo(builder, SpecializedTypeUtils::appendToBuilder, " & ");
-                break;
             case ParameterizedType parameterizedType:
                 builder.append(parameterizedType.rawType().getSimpleName());
                 if (parameterizedType.isRaw()) {
@@ -56,19 +52,11 @@ public final class SpecializedTypeUtils {
                         .joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
                 builder.append(">");
                 break;
-            case WildcardType wildcard:
-                builder.append('?');
-                if (wildcard.isSuper()) {
-                    builder.append(" super ");
-                    wildcard.superBound().joinTo(builder, SpecializedTypeUtils::appendToBuilder, " & ");
-                } else if (!wildcard.extendsBound().isEmpty()) {
-                    wildcard.extendsBound().joinTo(builder, SpecializedTypeUtils::appendToBuilder, " & ");
-                }
-                var kind = wildcard.isSuper() ? " super " : " extends ";
-                builder.append(kind);
-                break;
             case ErasedType _:
                 builder.append("erased type");
+                break;
+            case UnknownType _:
+                builder.append('?');
                 break;
         }
     }
@@ -121,8 +109,6 @@ public final class SpecializedTypeUtils {
                 case InnerClassType i:
                     currentType = i.innerType();
                     break;
-                case WildcardType _:
-                case IntersectionType _:
                 case ClassType _:
                     throw new IllegalArgumentException(currentType.getClass().getSimpleName() + " not supported");
                 default:
@@ -192,36 +178,11 @@ public final class SpecializedTypeUtils {
             // var cast = (List<String>) obj;
             case ParameterizedType parameterizedType:
                 return validate(obj, expected, parameterizedType.rawType());
-
-            // var cast = (Runnable & Serializable) obj;
-            case IntersectionType intersection:
-                return intersection.bounds().allMatch(new Predicate<>() {
-                    @Override
-                    public boolean test(SpecializedType bound) {
-                        return isInstance(obj, bound);
-                    }
-                });
-
             // var cast = (List<String>[]) obj;
             case ArrayType arrayType:
                 if (!obj.getClass().isArray()) return false;
                 return validate(obj, expected, obj.getClass());
 
-            // Note that this kind of cast should not be possible
-            // var cast = (? extends String) obj;
-            // var cast = (? super String) obj;
-            // var cast = (?) obj; equivalent to (? extends Object)
-            case WildcardType wildcard:
-                var objClass = obj.getClass();
-                var opt = Internal.extractInformationField(obj);
-                if (opt.isEmpty()) {
-                    return true;
-                }
-                var actualArg = opt.get();
-                return false;
-            // TODO
-//                return wildcard.superBound().allMatch(Utils.isAssignableLambdaActual(actualArg, Arg.Variance.COVARIANT)) &&
-//                        wildcard.extendsBound().allMatch(Utils.isAssignableLambdaActual(actualArg, Arg.Variance.CONTRAVARIANT));
             case null:
             default:
                 throw new AssertionError();
@@ -283,9 +244,6 @@ public final class SpecializedTypeUtils {
                 return parameterizedType.asSuper(type);
             case ArrayType _:
             case InnerClassType _:
-            case IntersectionType _:
-            case WildcardType _:
-                throw new IllegalArgumentException("Invalid type: " + stringify(specializedType));
             default:
                 throw new IllegalArgumentException();
         }

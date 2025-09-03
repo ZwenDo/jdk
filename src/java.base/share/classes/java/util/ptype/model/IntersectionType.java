@@ -4,7 +4,7 @@ import java.util.ptype.util.ArrayList;
 import java.util.ptype.util.Utils;
 
 /// Represents an intersection type.
-public final class IntersectionType implements SpecializedType {
+public final class IntersectionType {
 
     private final ArrayList<SpecializedType> bounds;
 

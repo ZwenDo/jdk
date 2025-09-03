@@ -91,7 +91,6 @@ public final class SpecializedTypePassingHandler {
     /// @param arg the argument to push
     /// @return null
     public static Void pushConstructor(SpecializedType arg) {
-        Utils.requireNonNull(arg);
         var instance = instance();
         instance.constructorTypeArgs = arg;
         return null;

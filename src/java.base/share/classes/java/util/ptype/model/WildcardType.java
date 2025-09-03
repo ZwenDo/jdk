@@ -4,7 +4,7 @@ import java.util.ptype.util.ArrayList;
 import java.util.ptype.util.Utils;
 
 /// Represents a wildcard type.
-public final class WildcardType implements SpecializedType {
+public final class WildcardType {
 
     private final boolean isSuper;
 

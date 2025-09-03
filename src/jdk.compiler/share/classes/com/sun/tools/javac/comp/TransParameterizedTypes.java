@@ -163,17 +163,17 @@ public final class TransParameterizedTypes {
                 syms.innerClassType.tsym
         );
 
-        public final Symbol.MethodSymbol wildcardTypeConstructor = new Symbol.MethodSymbol(
-                PUBLIC | VARARGS,
-                names.init,
-                new Type.MethodType(
-                        List.of(syms.booleanType, types.makeArrayType(syms.specializedTypeType)),
-                        syms.voidType,
-                        List.nil(),
-                        syms.methodClass
-                ),
-                syms.wildcardType.tsym
-        );
+//        public final Symbol.MethodSymbol wildcardTypeConstructor = new Symbol.MethodSymbol(
+//                PUBLIC | VARARGS,
+//                names.init,
+//                new Type.MethodType(
+//                        List.of(syms.booleanType, types.makeArrayType(syms.specializedTypeType)),
+//                        syms.voidType,
+//                        List.nil(),
+//                        syms.methodClass
+//                ),
+//                syms.wildcardType.tsym
+//        );
 
         public final Symbol.MethodSymbol parameterizedTypeConstructor = new Symbol.MethodSymbol(
                 PUBLIC | VARARGS,
@@ -187,17 +187,17 @@ public final class TransParameterizedTypes {
                 syms.parameterizedTypeType.tsym
         );
 
-        public final Symbol.MethodSymbol intersectionTypeConstructor = new Symbol.MethodSymbol(
-                PUBLIC,
-                names.init,
-                new Type.MethodType(
-                        List.of(types.makeArrayType(syms.specializedTypeType)),
-                        syms.voidType,
-                        List.nil(),
-                        syms.methodClass
-                ),
-                syms.intersectionType.tsym
-        );
+//        public final Symbol.MethodSymbol intersectionTypeConstructor = new Symbol.MethodSymbol(
+//                PUBLIC,
+//                names.init,
+//                new Type.MethodType(
+//                        List.of(types.makeArrayType(syms.specializedTypeType)),
+//                        syms.voidType,
+//                        List.nil(),
+//                        syms.methodClass
+//                ),
+//                syms.intersectionType.tsym
+//        );
 
         public final Symbol.MethodSymbol classTypeStringConstructor = new Symbol.MethodSymbol(
                 PUBLIC,
@@ -240,6 +240,18 @@ public final class TransParameterizedTypes {
                         syms.methodClass
                 ),
                 syms.erasedTypeType.tsym
+        );
+
+        public final Symbol.MethodSymbol unknownTypeInstanceMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("instance"),
+                new Type.MethodType(
+                        List.nil(),
+                        syms.unknownTypeType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.unknownTypeType.tsym
         );
 
         public final Symbol.MethodSymbol argStackWalkerMethod = new Symbol.MethodSymbol(
@@ -982,6 +994,12 @@ public final class TransParameterizedTypes {
             }
         }
 
+        @Override
+        public void visitClassDef(JCTree.JCClassDecl tree) { // do not recurse on inner classes
+            rewriteClass(tree);
+            result = tree;
+        }
+
         private JCTree.JCExpression pushMethodCode(List<JCTree.JCExpression> explicitTypes, Type.MethodType method, Symbol.MethodSymbol sym) {
             var generatedArgs = basicMethodArgConstruction(
                     sym,
@@ -1179,27 +1197,29 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression generateWildcardKind(Type.WildcardType type) {
-            return switch (type.kind) {
-                case UNBOUND -> generateWcExtendsObject();
-                case EXTENDS -> {
-                    var call = constructorInvocation(constantHolder().wildcardTypeConstructor);
-                    call.args = List.of(make.Literal(false), actualGenerateArgs(type.getExtendsBound()));
-                    yield call;
-                }
-                case SUPER -> {
-                    var call = constructorInvocation(constantHolder().wildcardTypeConstructor);
-                    call.args = List.of(make.Literal(false), actualGenerateArgs(type.getSuperBound()));
-                    yield call;
-                }
-            };
+            return staticMethodInvocation(constantHolder().unknownTypeInstanceMethod);
+//            return switch (type.kind) {
+//                case UNBOUND -> generateWcExtendsObject();
+//                case EXTENDS -> {
+//                    var call = constructorInvocation(constantHolder().wildcardTypeConstructor);
+//                    call.args = List.of(make.Literal(false), actualGenerateArgs(type.getExtendsBound()));
+//                    yield call;
+//                }
+//                case SUPER -> {
+//                    var call = constructorInvocation(constantHolder().wildcardTypeConstructor);
+//                    call.args = List.of(make.Literal(false), actualGenerateArgs(type.getSuperBound()));
+//                    yield call;
+//                }
+//            };
         }
 
         private JCTree.JCExpression generateIntersectionKind(Type.IntersectionClassType type) {
-            var call = constructorInvocation(constantHolder().intersectionTypeConstructor);
-            var buffer = new ListBuffer<JCTree.JCExpression>();
-            type.getComponents().forEach(c -> buffer.add(actualGenerateArgs(c)));
-            call.args = buffer.toList();
-            return call;
+            return staticMethodInvocation(constantHolder().unknownTypeInstanceMethod);
+//            var call = constructorInvocation(constantHolder().intersectionTypeConstructor);
+//            var buffer = new ListBuffer<JCTree.JCExpression>();
+//            type.getComponents().forEach(c -> buffer.add(actualGenerateArgs(c)));
+//            call.args = buffer.toList();
+//            return call;
         }
 
         private JCTree.JCExpression generateClassKind(Type.ClassType type) {
@@ -1238,7 +1258,7 @@ public final class TransParameterizedTypes {
             var index = owner.type.getTypeArguments().indexOf(type);
             // if the owner of this type does not have it in its declared type parameters, it is a wildcard
             if (index == -1) { // wildcard
-                return generateWcExtendsObject();
+                return staticMethodInvocation(constantHolder().unknownTypeInstanceMethod);
             }
 
             return typeVarResolution(type.tsym);
@@ -1264,13 +1284,13 @@ public final class TransParameterizedTypes {
             return innerCall;
         }
 
-        private JCTree.JCExpression generateWcExtendsObject() {
-            var call = constructorInvocation(constantHolder().wildcardTypeConstructor);
-            var c = constructorInvocation(constantHolder().classTypeConstructor);
-            c.args = List.of(make.ClassLiteral(syms.objectType));
-            call.args = List.of(make.Literal(false), c);
-            return call;
-        }
+//        private JCTree.JCExpression generateWcExtendsObject() {
+//            var call = constructorInvocation(constantHolder().wildcardTypeConstructor);
+//            var c = constructorInvocation(constantHolder().classTypeConstructor);
+//            c.args = List.of(make.ClassLiteral(syms.objectType));
+//            call.args = List.of(make.Literal(false), c);
+//            return call;
+//        }
 
     }
     //endregion
