@@ -921,12 +921,7 @@ public class Gen extends JCTree.Visitor {
         this.pt = tree.sym.erasure(types).getReturnType();
 
         checkDimension(tree.pos(), tree.sym.erasure(types));
-        try {
-            genMethod(tree, localEnv, false);
-        } catch (Throwable e) {
-            System.out.println(tree);
-            throw e;
-        }
+        genMethod(tree, localEnv, false);
     }
 //where
         /** Generate code for a method.

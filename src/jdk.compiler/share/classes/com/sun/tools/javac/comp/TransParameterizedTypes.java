@@ -13,6 +13,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.type.TypeKind;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -685,7 +686,7 @@ public final class TransParameterizedTypes {
 
     //region rewriting (method)
     private void rewriteBasicMethod(JCTree.JCMethodDecl method) {
-        if (isNative(method.sym) || method.sym.isAbstract()) return;
+        if (isNative(method.sym) || method.body == null) return;
 
         var oldTypeParameterScopes = typeParameterScopes;
         var oldState = typeParameterScopeGroupState;
@@ -967,7 +968,6 @@ public final class TransParameterizedTypes {
         public void visitBlock(JCTree.JCBlock tree) {
             super.visitBlock(tree);
             if (!tree.isStatic() || tree.stats.isEmpty()) return;
-            System.out.println(tree.stats);
 
             var clinit = new Symbol.MethodSymbol(
                     STATIC,
@@ -1380,6 +1380,10 @@ public final class TransParameterizedTypes {
 //        getInnerArgCall.args = List.of(argAccessingCall, make.Literal(index));
 //        return getInnerArgCall;
     }
+
+    private static class Foo {
+        private static class Bar {}
+    }
     //endregion
 
     private final class ParameterizedScope implements Iterable<ParameterizedScope.Group> {
@@ -1499,6 +1503,8 @@ public final class TransParameterizedTypes {
             /// this usage.
             boolean markAsUsed();
 
+            boolean used();
+
             boolean shouldGenerate(boolean usedInState, int currentDepth);
 
             java.util.List<? extends Symbol> variableParams();
@@ -1534,7 +1540,8 @@ public final class TransParameterizedTypes {
                 return shouldSaveInLocal();
             }
 
-            protected final boolean used() {
+            @Override
+            public final boolean used() {
                 return used;
             }
 
@@ -1667,7 +1674,7 @@ public final class TransParameterizedTypes {
 
             @Override
             protected boolean shouldSaveInLocal() {
-                return false;
+                return true;
             }
 
             @Override
@@ -1675,8 +1682,8 @@ public final class TransParameterizedTypes {
                 // SpecializedType args = ...;
                 var init = staticMethodInvocation(constantHolder().extractAsSuperMethod);
                 init.args = List.of(make.This(type.type), make.ClassLiteral(type));
-                var assign = make.Assign(make.Ident(declarationVariable), init);
-                statementConsumer.accept(make.Exec(assign));
+                var decl = make.VarDef(declarationVariable, init);
+                statementConsumer.accept(decl);
             }
 
             @Override
@@ -1690,7 +1697,8 @@ public final class TransParameterizedTypes {
 
             @Override
             public boolean shouldGenerate(boolean usedInState, int currentDepth) {
-                return currentDepth == depth && used();
+                // FIXME, maybe we need to change the whole system to avoid generating too much interface access.
+                return usedInState;
             }
         }
 
