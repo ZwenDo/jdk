@@ -13,7 +13,6 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.type.TypeKind;
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -304,6 +303,18 @@ public final class TransParameterizedTypes {
                 syms.specializedTypePassingHandleType.tsym
         );
 
+        public final Symbol.MethodSymbol popMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("popMethodTypeArguments"),
+                new Type.MethodType(
+                        List.nil(),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.specializedTypePassingHandleType.tsym
+        );
+
         public final Symbol.MethodSymbol pushConstructor = new Symbol.MethodSymbol(
                 PUBLIC | STATIC,
                 names.fromString("pushConstructor"),
@@ -426,6 +437,7 @@ public final class TransParameterizedTypes {
         var oldSuperTypes = superTypes;
         var oldCurrentClassArgField = currentClassArgField;
 
+        var parameterized = isParameterized(tree.sym);
         try {
             currentClass = tree.sym;
             currentClassTree = tree;
@@ -436,7 +448,7 @@ public final class TransParameterizedTypes {
                 typeMappingScope = List.nil();
             }
 
-            if (isParameterized(tree.sym)) {
+            if (parameterized) {
                 // do not reorder these instructions.
                 currentClassArgField = createArgFieldSymbol();
                 if (tree.sym.isInterface()) {
@@ -450,7 +462,7 @@ public final class TransParameterizedTypes {
             rewriteDefs(tree);
 
             // last thing is to add the field if needed
-            if (isParameterized(tree.sym)) {
+            if (parameterized) {
                 if (!superTypes.isEmpty()) {
                     var computeSuper = computeSuperMethod();
                     tree.defs = tree.defs.prepend(computeSuper);
@@ -464,7 +476,7 @@ public final class TransParameterizedTypes {
             }
 
         } finally {
-            if (isParameterized(tree.sym)) {
+            if (parameterized) {
                 typeParameterScopes.pop();
             }
             currentClass = oldCurrentClassTree != null ? oldCurrentClassTree.sym : null;
@@ -479,7 +491,7 @@ public final class TransParameterizedTypes {
 
     private Symbol.VarSymbol createArgFieldSymbol() {
         return new Symbol.VarSymbol(
-                PRIVATE | FINAL,
+                PRIVATE | FINAL | TRANSIENT,
                 constantHolder().objectTypeArgumentsFieldName,
                 syms.specializedTypeType,
                 currentClass
@@ -520,7 +532,6 @@ public final class TransParameterizedTypes {
         // class Abstract implements A
         // class Concrete extends Abstract implements A
         var visitedClasses = new HashSet<Symbol>();
-
 
         var queue = new ArrayDeque<Type>();
         queue.addLast(tree.type);
@@ -697,7 +708,8 @@ public final class TransParameterizedTypes {
 
         try {
             typeParameterScopes.enterMethod();
-            if (isParameterized(method.sym)) {
+            var parameterized = isParameterized(method.sym);
+            if (parameterized) {
                 typeParameterScopes.pushMethodGroup(getTypeArguments(method.sym), method.sym);
             }
             typeParameterScopeGroupState = typeParameterScopes.newState(method.sym);
@@ -706,7 +718,7 @@ public final class TransParameterizedTypes {
 
             adjustRegularMethodBody(method);
 
-            if (isParameterized(method.sym)) {
+            if (parameterized) {
                 typeParameterScopes.pop();
             }
         } finally {
@@ -730,13 +742,15 @@ public final class TransParameterizedTypes {
             Symbol.VarSymbol argsVariable = null;
             var shouldInitializeArgField = false;
 
-            if (isParameterized(currentClass)) {
+            var parameterizedClass = isParameterized(currentClass);
+            if (parameterizedClass) {
                 typeParameterScopes.pushConstructorGroup(method.sym);
                 argsVariable = typeParameterScopes.top().variable(method.sym);
                 shouldInitializeArgField = !doesCallOverload;
             }
 
-            if (isParameterized(method.sym)) {
+            var parameterizedMethod = isParameterized(method.sym);
+            if (parameterizedMethod) {
                 typeParameterScopes.pushMethodGroup(getTypeArguments(method.sym), method.sym);
             }
             typeParameterScopeGroupState = typeParameterScopes.newState(method.sym);
@@ -745,10 +759,10 @@ public final class TransParameterizedTypes {
 
             adjustConstructorBody(method, argsVariable, shouldInitializeArgField);
 
-            if (isParameterized(method.sym)) {
+            if (parameterizedMethod) {
                 typeParameterScopes.pop();
             }
-            if (isParameterized(currentClass)) {
+            if (parameterizedClass) {
                 typeParameterScopes.pop();
             }
         } finally {
@@ -978,30 +992,29 @@ public final class TransParameterizedTypes {
                     currentClass
             );
 
-            var buffer = new ListBuffer<JCTree.JCStatement>();
-
             var methodPop = staticMethodInvocation(constantHolder().methodTypeArgumentsAccessMethod);
             methodPop.args = List.of(nullLiteral());
             var methodLocalVar = createVariable(constantHolder().methodTypeArgumentsLocalVarName, syms.specializedMethodTypeArgumentsType, clinit);
-            buffer.add(make.VarDef(methodLocalVar, methodPop));
+            var methodDef = make.VarDef(methodLocalVar, methodPop);
 
             var constructorPop = staticMethodInvocation(constantHolder().constructorTypeArgumentsAccessMethod);
             var constructorLocalVar = createVariable(constantHolder().constructorTypeArgumentsLocalVarName, syms.specializedTypeType, clinit);
-            buffer.add(make.VarDef(constructorLocalVar, constructorPop));
+            var constructorDef = make.VarDef(constructorLocalVar, constructorPop);
 
-            buffer.addAll(tree.stats);
+            var tryBlock = make.Block(0L, tree.stats);
 
             // because we know that the class is always loaded either by a static access (method or field) or a constructor
             // call, we can assume that no callerClass is needed, and therefore we can push null
             var methodPush = staticMethodInvocation(constantHolder().pushMethod);
             methodPush.args = List.of(make.Ident(methodLocalVar), nullLiteral());
-            buffer.add(make.Exec(methodPush));
 
             var constructorPush = staticMethodInvocation(constantHolder().pushConstructor);
             constructorPush.args = List.of(make.Ident(constructorLocalVar));
-            buffer.add(make.Exec(constructorPush));
 
-            tree.stats = buffer.toList();
+            var finallyBlock = make.Block(0L, List.of(make.Exec(methodPush), make.Exec(constructorPush)));
+            var tryFinally = make.Try(tryBlock, List.nil(), finallyBlock);
+
+            tree.stats = List.of(methodDef, constructorDef, tryFinally);
         }
 
         private JCTree.JCExpression pushMethodCode(List<JCTree.JCExpression> explicitTypes, Type.MethodType method, Symbol.MethodSymbol sym) {
@@ -1228,7 +1241,7 @@ public final class TransParameterizedTypes {
             var classFieldAcc = classArgParam((Symbol.ClassSymbol) tsym, isAccessible);
 
             if (type.isRaw()) { // Foo (raw)
-                return rawTypeCreation();
+                return rawTypeCreation((Symbol.ClassSymbol) type.tsym);
             }
 
             if (type.getTypeArguments().nonEmpty()) { // Foo<E> (E can be a wildcard)
@@ -1381,9 +1394,6 @@ public final class TransParameterizedTypes {
 //        return getInnerArgCall;
     }
 
-    private static class Foo {
-        private static class Bar {}
-    }
     //endregion
 
     private final class ParameterizedScope implements Iterable<ParameterizedScope.Group> {
@@ -1448,9 +1458,9 @@ public final class TransParameterizedTypes {
             private final java.util.List<Slot> state;
             private final int depth;
 
-            private GroupState(ArrayList<Group> groups, Symbol.MethodSymbol currentMethod, int depth) {
+            private GroupState(ArrayList<Group> groups, Symbol variableOwner, int depth) {
                 state = groups.stream()
-                        .map(g -> new Slot(g, g.variable(currentMethod)))
+                        .map(g -> new Slot(g, g.variable(variableOwner)))
                         .toList();
                 this.depth = depth;
             }
@@ -1497,7 +1507,7 @@ public final class TransParameterizedTypes {
                     Consumer<JCTree.JCStatement> statementConsumer
             );
 
-            Symbol.VarSymbol variable(Symbol.MethodSymbol currentMethod);
+            Symbol.VarSymbol variable(Symbol currentOwner);
 
             /// Notify the group that it has been used and returns whether the local state should also keep track of
             /// this usage.
@@ -1574,7 +1584,7 @@ public final class TransParameterizedTypes {
             }
 
             @Override
-            public Symbol.VarSymbol variable(Symbol.MethodSymbol currentMethod) {
+            public Symbol.VarSymbol variable(Symbol currentOwner) {
                 return variable;
             }
 
@@ -1583,6 +1593,12 @@ public final class TransParameterizedTypes {
                     Symbol.VarSymbol declarationVariable,
                     Consumer<JCTree.JCStatement> statementConsumer
             ) {
+                if (!used()) { // if not used, we at least avoid generating a local variable
+                    var call = staticMethodInvocation(constantHolder().popMethod);
+                    statementConsumer.accept(make.Exec( call));
+                    return;
+                }
+
                 // MethodTypeArgs methodTypeArgs = null;
                 statementConsumer.accept(make.VarDef(declarationVariable, nullLiteral()));
 
@@ -1615,7 +1631,7 @@ public final class TransParameterizedTypes {
 
             @Override
             public boolean shouldGenerate(boolean usedInState, int currentDepth) {
-                return currentDepth == depth && used();
+                return currentDepth == depth; // we always generate the code, as we at least need to pop the information
             }
 
             @Override
@@ -1636,7 +1652,7 @@ public final class TransParameterizedTypes {
             }
 
             @Override
-            public Symbol.VarSymbol variable(Symbol.MethodSymbol currentMethod) {
+            public Symbol.VarSymbol variable(Symbol currentOwner) {
                 return variable;
             }
 
@@ -1684,14 +1700,18 @@ public final class TransParameterizedTypes {
                 init.args = List.of(make.This(type.type), make.ClassLiteral(type));
                 var decl = make.VarDef(declarationVariable, init);
                 statementConsumer.accept(decl);
+
+                // if (args == null) raw version
+                var fallback = argsFallback(declarationVariable, rawTypeCreation(currentClass));
+                statementConsumer.accept(fallback);
             }
 
             @Override
-            public Symbol.VarSymbol variable(Symbol.MethodSymbol currentMethod) {
+            public Symbol.VarSymbol variable(Symbol currentOwner) {
                 return createVariable(
                         constantHolder().objectTypeArgumentsLocalVarName,
                         syms.specializedTypeType,
-                        currentMethod
+                        currentOwner
                 );
             }
 
@@ -1730,19 +1750,19 @@ public final class TransParameterizedTypes {
                 statementConsumer.accept(
                         argsFallback(
                                 declarationVariable,
-                                rawTypeCreation()
+                                rawTypeCreation(currentClass)
                         )
                 );
             }
 
             @Override
-            public Symbol.VarSymbol variable(Symbol.MethodSymbol currentMethod) {
+            public Symbol.VarSymbol variable(Symbol currentOwner) {
                 return variable;
             }
 
             @Override
             public boolean shouldGenerate(boolean usedInState, int currentDepth) {
-                // We always need to generate it in its constructor as it will at lease be used to setup the
+                // We always need to generate it in its constructor as it will at least be used to setup the
                 // constructorTypeArgs.
                 return currentDepth == depth;
             }
@@ -1753,7 +1773,7 @@ public final class TransParameterizedTypes {
             }
         }
 
-        private final class ComputeSuperGroup extends Base {
+        private static final class ComputeSuperGroup extends Base {
 
             private final Symbol.VarSymbol variable;
 
@@ -1778,7 +1798,7 @@ public final class TransParameterizedTypes {
             }
 
             @Override
-            public Symbol.VarSymbol variable(Symbol.MethodSymbol currentMethod) {
+            public Symbol.VarSymbol variable(Symbol currentOwner) {
                 return variable;
             }
 
@@ -1852,7 +1872,7 @@ public final class TransParameterizedTypes {
         return constructorInvocation(sym);
     }
 
-    private JCTree.JCExpression rawTypeCreation() {
+    private JCTree.JCExpression rawTypeCreation(Symbol.ClassSymbol symbol) {
         var constructorCall = constructorInvocation(constantHolder().parameterizedTypeConstructor);
         var typeParametersCount = currentClass.type.getTypeArguments().length();
         var constructorArguments = List.<JCTree.JCExpression>nil();
@@ -1860,7 +1880,7 @@ public final class TransParameterizedTypes {
             var arg = staticMethodInvocation(constantHolder().erasedTypeInstanceMethod);
             constructorArguments = constructorArguments.prepend(arg);
         }
-        constructorArguments = constructorArguments.prepend(make.ClassLiteral(currentClass));
+        constructorArguments = constructorArguments.prepend(make.ClassLiteral(symbol));
         constructorCall.args = constructorArguments;
         return constructorCall;
     }

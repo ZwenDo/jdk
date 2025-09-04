@@ -64,6 +64,14 @@ public final class SpecializedTypePassingHandler {
         return instance.caller == actualCaller ? args : null;
     }
 
+    /// Returns the current expected caller.
+    ///
+    /// @return the current expected caller
+    public static Class<?> methodCaller() {
+        var instance = instance();
+        return instance.caller;
+    }
+
     /// Returns the argument for the current constructor call.
     ///
     /// @return the argument for the current constructor call
@@ -84,6 +92,12 @@ public final class SpecializedTypePassingHandler {
         instance.passedMethodTypeArgs = arg;
         instance.caller = caller;
         return null;
+    }
+
+    /// Pops the method type arguments.
+    public static void popMethodTypeArguments() {
+        var instance = instance();
+        instance.passedMethodTypeArgs = null;
     }
 
     /// Pushes the type to the stack before a constructor call.

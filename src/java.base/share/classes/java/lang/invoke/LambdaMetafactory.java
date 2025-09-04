@@ -29,6 +29,7 @@ import java.io.Serializable;
 import java.util.Arrays;
 import java.lang.reflect.Array;
 import java.util.Objects;
+import java.util.ptype.SpecializedTypePassingHandler;
 
 import jdk.internal.vm.annotation.AOTSafeClassInitializer;
 
@@ -237,7 +238,6 @@ import jdk.internal.vm.annotation.AOTSafeClassInitializer;
  * support, and such changes may impact unintended uses.  Unintended uses of
  * these linkage methods may lead to resource leaks, or other unspecified
  * negative effects.
- *
  * @implNote In the reference implementation, the classes implementing the created
  * function objects are strongly reachable from the defining class loader of the
  * caller, like classes and interfaces in Java source code.  This technique
@@ -246,7 +246,6 @@ import jdk.internal.vm.annotation.AOTSafeClassInitializer;
  * caller is a {@linkplain MethodHandles.Lookup.ClassOption#STRONG weak hidden
  * class}, the implementation class, a strong hidden class, may not be unloaded
  * even if the caller may be unloaded.
- *
  * @since 1.8
  */
 @AOTSafeClassInitializer
@@ -343,18 +342,26 @@ public final class LambdaMetafactory {
                                        MethodHandle implementation,
                                        MethodType dynamicMethodType)
             throws LambdaConversionException {
-        AbstractValidatingLambdaMetafactory mf;
-        mf = new InnerClassLambdaMetafactory(Objects.requireNonNull(caller),
-                                             Objects.requireNonNull(factoryType),
-                                             Objects.requireNonNull(interfaceMethodName),
-                                             Objects.requireNonNull(interfaceMethodType),
-                                             Objects.requireNonNull(implementation),
-                                             Objects.requireNonNull(dynamicMethodType),
-                                             false,
-                                             EMPTY_CLASS_ARRAY,
-                                             EMPTY_MT_ARRAY);
-        mf.validateMetafactoryArgs();
-        return mf.buildCallSite();
+        var method = SpecializedTypePassingHandler.methodTypeArguments(null);
+        var argsCaller = SpecializedTypePassingHandler.methodCaller();
+        var constructor = SpecializedTypePassingHandler.constructorTypeArguments();
+        try {
+            AbstractValidatingLambdaMetafactory mf;
+            mf = new InnerClassLambdaMetafactory(Objects.requireNonNull(caller),
+                    Objects.requireNonNull(factoryType),
+                    Objects.requireNonNull(interfaceMethodName),
+                    Objects.requireNonNull(interfaceMethodType),
+                    Objects.requireNonNull(implementation),
+                    Objects.requireNonNull(dynamicMethodType),
+                    false,
+                    EMPTY_CLASS_ARRAY,
+                    EMPTY_MT_ARRAY);
+            mf.validateMetafactoryArgs();
+            return mf.buildCallSite();
+        } finally {
+            SpecializedTypePassingHandler.pushMethod(method, argsCaller);
+            SpecializedTypePassingHandler.pushConstructor(constructor);
+        }
     }
 
     /**
@@ -489,64 +496,73 @@ public final class LambdaMetafactory {
                                           MethodType factoryType,
                                           Object... args)
             throws LambdaConversionException {
-        Objects.requireNonNull(caller);
-        Objects.requireNonNull(interfaceMethodName);
-        Objects.requireNonNull(factoryType);
-        Objects.requireNonNull(args);
-        int argIndex = 0;
-        MethodType interfaceMethodType = extractArg(args, argIndex++, MethodType.class);
-        MethodHandle implementation = extractArg(args, argIndex++, MethodHandle.class);
-        MethodType dynamicMethodType = extractArg(args, argIndex++, MethodType.class);
-        int flags = extractArg(args, argIndex++, Integer.class);
-        Class<?>[] altInterfaces = EMPTY_CLASS_ARRAY;
-        MethodType[] altMethods = EMPTY_MT_ARRAY;
-        if ((flags & FLAG_MARKERS) != 0) {
-            int altInterfaceCount = extractArg(args, argIndex++, Integer.class);
-            if (altInterfaceCount < 0) {
-                throw new IllegalArgumentException("negative argument count");
-            }
-            if (altInterfaceCount > 0) {
-                altInterfaces = extractArgs(args, argIndex, Class.class, altInterfaceCount);
-                argIndex += altInterfaceCount;
-            }
-        }
-        if ((flags & FLAG_BRIDGES) != 0) {
-            int altMethodCount = extractArg(args, argIndex++, Integer.class);
-            if (altMethodCount < 0) {
-                throw new IllegalArgumentException("negative argument count");
-            }
-            if (altMethodCount > 0) {
-                altMethods = extractArgs(args, argIndex, MethodType.class, altMethodCount);
-                argIndex += altMethodCount;
-            }
-        }
-        if (argIndex < args.length) {
-            throw new IllegalArgumentException("too many arguments");
-        }
+        var method = SpecializedTypePassingHandler.methodTypeArguments(null);
+        var argsCaller = SpecializedTypePassingHandler.methodCaller();
+        var constructor = SpecializedTypePassingHandler.constructorTypeArguments();
 
-        boolean isSerializable = ((flags & FLAG_SERIALIZABLE) != 0);
-        if (isSerializable) {
-            boolean foundSerializableSupertype = Serializable.class.isAssignableFrom(factoryType.returnType());
-            for (Class<?> c : altInterfaces)
-                foundSerializableSupertype |= Serializable.class.isAssignableFrom(c);
-            if (!foundSerializableSupertype) {
-                altInterfaces = Arrays.copyOf(altInterfaces, altInterfaces.length + 1);
-                altInterfaces[altInterfaces.length-1] = Serializable.class;
+        try {
+            Objects.requireNonNull(caller);
+            Objects.requireNonNull(interfaceMethodName);
+            Objects.requireNonNull(factoryType);
+            Objects.requireNonNull(args);
+            int argIndex = 0;
+            MethodType interfaceMethodType = extractArg(args, argIndex++, MethodType.class);
+            MethodHandle implementation = extractArg(args, argIndex++, MethodHandle.class);
+            MethodType dynamicMethodType = extractArg(args, argIndex++, MethodType.class);
+            int flags = extractArg(args, argIndex++, Integer.class);
+            Class<?>[] altInterfaces = EMPTY_CLASS_ARRAY;
+            MethodType[] altMethods = EMPTY_MT_ARRAY;
+            if ((flags & FLAG_MARKERS) != 0) {
+                int altInterfaceCount = extractArg(args, argIndex++, Integer.class);
+                if (altInterfaceCount < 0) {
+                    throw new IllegalArgumentException("negative argument count");
+                }
+                if (altInterfaceCount > 0) {
+                    altInterfaces = extractArgs(args, argIndex, Class.class, altInterfaceCount);
+                    argIndex += altInterfaceCount;
+                }
             }
-        }
+            if ((flags & FLAG_BRIDGES) != 0) {
+                int altMethodCount = extractArg(args, argIndex++, Integer.class);
+                if (altMethodCount < 0) {
+                    throw new IllegalArgumentException("negative argument count");
+                }
+                if (altMethodCount > 0) {
+                    altMethods = extractArgs(args, argIndex, MethodType.class, altMethodCount);
+                    argIndex += altMethodCount;
+                }
+            }
+            if (argIndex < args.length) {
+                throw new IllegalArgumentException("too many arguments");
+            }
 
-        AbstractValidatingLambdaMetafactory mf
-                = new InnerClassLambdaMetafactory(caller,
-                                                  factoryType,
-                                                  interfaceMethodName,
-                                                  interfaceMethodType,
-                                                  implementation,
-                                                  dynamicMethodType,
-                                                  isSerializable,
-                                                  altInterfaces,
-                                                  altMethods);
-        mf.validateMetafactoryArgs();
-        return mf.buildCallSite();
+            boolean isSerializable = ((flags & FLAG_SERIALIZABLE) != 0);
+            if (isSerializable) {
+                boolean foundSerializableSupertype = Serializable.class.isAssignableFrom(factoryType.returnType());
+                for (Class<?> c : altInterfaces)
+                    foundSerializableSupertype |= Serializable.class.isAssignableFrom(c);
+                if (!foundSerializableSupertype) {
+                    altInterfaces = Arrays.copyOf(altInterfaces, altInterfaces.length + 1);
+                    altInterfaces[altInterfaces.length - 1] = Serializable.class;
+                }
+            }
+
+            AbstractValidatingLambdaMetafactory mf
+                    = new InnerClassLambdaMetafactory(caller,
+                    factoryType,
+                    interfaceMethodName,
+                    interfaceMethodType,
+                    implementation,
+                    dynamicMethodType,
+                    isSerializable,
+                    altInterfaces,
+                    altMethods);
+            mf.validateMetafactoryArgs();
+            return mf.buildCallSite();
+        } finally {
+            SpecializedTypePassingHandler.pushMethod(method, argsCaller);
+            SpecializedTypePassingHandler.pushConstructor(constructor);
+        }
     }
 
     private static <T> T extractArg(Object[] args, int index, Class<T> type) {

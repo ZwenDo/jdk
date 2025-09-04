@@ -223,7 +223,7 @@ import sun.invoke.util.Wrapper;
         } else {
             try {
                 MethodHandle mh = caller.findConstructor(innerClass, constructorType);
-                if (factoryType.parameterCount() == 0) {
+                if (false) {
                     // In the case of a non-capturing lambda, we optimize linkage by pre-computing a single instance
                     Object inst = mh.invokeBasic();
                     return new ConstantCallSite(MethodHandles.constant(interfaceClass, inst));
