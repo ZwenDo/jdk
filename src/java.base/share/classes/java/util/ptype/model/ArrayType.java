@@ -1,10 +1,14 @@
 package java.util.ptype.model;
 
+import jdk.internal.vm.annotation.Stable;
+
+import java.util.ptype.SpecializedTypeUtils;
 import java.util.ptype.util.Utils;
 
 /// Represents an array type.
 public final class ArrayType implements SpecializedType {
 
+    @Stable
     private final SpecializedType componentType;
 
     /// Creates a new array type.
@@ -20,6 +24,11 @@ public final class ArrayType implements SpecializedType {
     /// @return the component type
     public SpecializedType componentType() {
         return componentType;
+    }
+
+    @Override
+    public String toString() {
+        return SpecializedTypeUtils.stringify(this);
     }
 
 //    /**

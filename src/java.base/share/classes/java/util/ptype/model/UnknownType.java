@@ -1,6 +1,8 @@
 package java.util.ptype.model;
 
 
+import java.util.ptype.SpecializedTypeUtils;
+
 /// The unknown type
 public final class UnknownType implements SpecializedType {
 
@@ -19,7 +21,7 @@ public final class UnknownType implements SpecializedType {
 
     @Override
     public String toString() {
-        return "UnknownType";
+        return SpecializedTypeUtils.stringify(this);
     }
 
 }

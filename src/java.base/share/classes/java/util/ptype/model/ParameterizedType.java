@@ -1,16 +1,22 @@
 package java.util.ptype.model;
 
 
+import jdk.internal.vm.annotation.Stable;
+
+import java.util.ptype.SpecializedTypeUtils;
 import java.util.ptype.util.ArrayList;
 import java.util.ptype.util.Utils;
 
 /// Represents a parameterized type.
 public final class ParameterizedType extends ConcreteSpecializedType implements SpecializedType {
 
+    @Stable
     private final Class<?> rawType;
 
+    @Stable
     private final ArrayList<SpecializedType> typeArguments;
 
+    @Stable
     private final boolean isRaw;
 
     /// Creates a new [ParameterizedType].
@@ -66,6 +72,12 @@ public final class ParameterizedType extends ConcreteSpecializedType implements 
         }
         return isRaw;
     }
+
+    @Override
+    public String toString() {
+        return SpecializedTypeUtils.stringify(this);
+    }
+
 
     //    public boolean isAssignable(Arg actual, Variance variance) {
 //        Utils.requireNonNull(actual);

@@ -1,5 +1,7 @@
 package java.util.ptype.model;
 
+import jdk.internal.vm.annotation.Stable;
+
 import java.util.Objects;
 import java.util.ptype.SpecializedTypeUtils;
 import java.util.ptype.util.ArrayList;
@@ -8,6 +10,7 @@ import java.util.ptype.util.Utils;
 /// Represents the type arguments of a method.
 public final class SpecializedMethodTypeArguments implements SpecializedTypeContainer {
 
+    @Stable
     private final ArrayList<SpecializedType> arguments;
 
     /// Creates a new instance.

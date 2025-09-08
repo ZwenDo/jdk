@@ -3,7 +3,6 @@ package java.util.ptype;
 import jdk.internal.misc.VM;
 
 import java.util.ptype.model.*;
-import java.util.ptype.util.Predicate;
 import java.util.ptype.util.Utils;
 
 
@@ -29,6 +28,7 @@ public final class SpecializedTypeUtils {
     /// @param type the specialized type
     public static void appendToBuilder(StringBuilder builder, SpecializedType type) {
         Utils.requireNonNull(builder);
+        Utils.requireNonNull(type);
         switch (type) {
             case ArrayType arrayType:
                 appendToBuilder(builder, arrayType.componentType());
@@ -47,13 +47,13 @@ public final class SpecializedTypeUtils {
                 if (parameterizedType.isRaw()) {
                     break;
                 }
-                builder.append("<");
+                builder.append('<');
                 parameterizedType.typeArguments()
                         .joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
-                builder.append(">");
+                builder.append('>');
                 break;
             case ErasedType _:
-                builder.append("erased type");
+                builder.append("erased");
                 break;
             case UnknownType _:
                 builder.append('?');
@@ -85,7 +85,8 @@ public final class SpecializedTypeUtils {
         }
         switch (container) {
             case SpecializedMethodTypeArguments mta:
-                return extract(mta.typeArgument(indices[0]), 1, indices);
+                var arg = mta.typeArgument(indices[0]);
+                return indices.length == 1 ? arg : extract(arg, 1, indices);
             case SpecializedType specializedType:
                 return extract(specializedType, 0, indices);
             default:
@@ -95,22 +96,18 @@ public final class SpecializedTypeUtils {
 
     private static SpecializedType extract(SpecializedType type, int start, int[] indices) {
         var currentType = type;
-        var currentIndex = start;
+        var currentStep = start;
+        var index = indices[currentStep]; // we know that when entering the method, currentStep < indices.length.
 
-        while (currentIndex < indices.length) {
+        while (currentStep < indices.length) {
             switch (currentType) {
                 case ParameterizedType p:
-                    currentType = p.typeArguments().get(indices[currentIndex]);
-                    currentIndex++;
+                    currentType = p.typeArguments().get(index);
+                    index = indices[currentStep++];
                     break;
                 case ArrayType a:
                     currentType = a.componentType();
                     break;
-                case InnerClassType i:
-                    currentType = i.innerType();
-                    break;
-                case ClassType _:
-                    throw new IllegalArgumentException(currentType.getClass().getSimpleName() + " not supported");
                 default:
                     throw new AssertionError("Unexpected value: " + currentType);
             }
@@ -145,48 +142,49 @@ public final class SpecializedTypeUtils {
     }
 
     private static boolean isInstance(Object obj, SpecializedType expected) {
-        switch (expected) {
-            // var cast = (A<String>.B<Integer>) obj;
-            case InnerClassType innerClassType:
-                if (!isInstance(obj, innerClassType.innerType())) { // check inner type
-                    return false;
-                }
-
-                // we need to extract the expected outer class, because the actual object inner class might have an outer
-                // this that does not extend the expected outer class (e.g. Attr.ResultInfo & Resolve.MethodResultInfo).
-                Class<?> expectedOuterClass;
-                var outerClassArg = innerClassType.outerType();
-                if (outerClassArg instanceof ClassType outerClassType) {
-                    expectedOuterClass = outerClassType.type();
-                } else if (outerClassArg instanceof ParameterizedType parameterizedType) {
-                    expectedOuterClass = parameterizedType.rawType();
-                } else {
-                    throw new AssertionError("Unexpected outer type: " + innerClassType.outerType());
-                }
-
-                var outer = Internal.outerThis(obj, expectedOuterClass);
-                if (outer.isPresent()) {
-                    return isInstance(outer.get(), innerClassType.outerType());
-                } else { // by default if no outer type is specified, yield true
-                    return true;
-                }
-
-                // var cast = (String) obj; (usually (E) obj;)
-            case ClassType classType:
-                return classType.type().isAssignableFrom(obj.getClass());
-
-            // var cast = (List<String>) obj;
-            case ParameterizedType parameterizedType:
-                return validate(obj, expected, parameterizedType.rawType());
-            // var cast = (List<String>[]) obj;
-            case ArrayType arrayType:
-                if (!obj.getClass().isArray()) return false;
-                return validate(obj, expected, obj.getClass());
-
-            case null:
-            default:
-                throw new AssertionError();
-        }
+        return false;
+//        switch (expected) {
+//            // var cast = (A<String>.B<Integer>) obj;
+//            case InnerClassType innerClassType:
+//                if (!isInstance(obj, innerClassType.innerType())) { // check inner type
+//                    return false;
+//                }
+//
+//                // we need to extract the expected outer class, because the actual object inner class might have an outer
+//                // this that does not extend the expected outer class (e.g. Attr.ResultInfo & Resolve.MethodResultInfo).
+//                Class<?> expectedOuterClass;
+//                var outerClassArg = innerClassType.outerType();
+//                if (outerClassArg instanceof ClassType outerClassType) {
+//                    expectedOuterClass = outerClassType.type();
+//                } else if (outerClassArg instanceof ParameterizedType parameterizedType) {
+//                    expectedOuterClass = parameterizedType.rawType();
+//                } else {
+//                    throw new AssertionError("Unexpected outer type: " + innerClassType.outerType());
+//                }
+//
+//                var outer = Internal.outerThis(obj, expectedOuterClass);
+//                if (outer.isPresent()) {
+//                    return isInstance(outer.get(), innerClassType.outerType());
+//                } else { // by default if no outer type is specified, yield true
+//                    return true;
+//                }
+//
+//                // var cast = (String) obj; (usually (E) obj;)
+//            case ClassType classType:
+//                return classType.type().isAssignableFrom(obj.getClass());
+//
+//            // var cast = (List<String>) obj;
+//            case ParameterizedType parameterizedType:
+//                return validate(obj, expected, parameterizedType.rawType());
+//            // var cast = (List<String>[]) obj;
+//            case ArrayType arrayType:
+//                if (!obj.getClass().isArray()) return false;
+//                return validate(obj, expected, obj.getClass());
+//
+//            case null:
+//            default:
+//                throw new AssertionError();
+//        }
     }
 
     private static boolean validate(Object obj, SpecializedType expected, Class<?> supertype) {
@@ -238,16 +236,37 @@ public final class SpecializedTypeUtils {
         }
         var specializedType = field.get();
         switch (specializedType) {
-            case ClassType classType:
-                return classType.asSuper(type);
             case ParameterizedType parameterizedType:
                 return parameterizedType.asSuper(type);
-            case ArrayType _:
-            case InnerClassType _:
+            case ClassType classType:
+                return classType.asSuper(type);
             default:
-                throw new IllegalArgumentException();
+                throw new AssertionError("Unexpected type " + type);
         }
     }
+
+    /// Gets the n-th outermost type in an inner class hierarchy, 0 being the innermost class.
+    ///
+    /// @param type the type
+    /// @param index the index
+    /// @return the corresponding type
+    public static SpecializedType nestedClass(SpecializedType type, int index) {
+        Utils.requireNonNull(type);
+        if (index < 0) {
+            throw new IllegalArgumentException("index < 0");
+        }
+        InnerClassType result = null;
+        for (var i = 0; i <= index; i++) {
+            var next = result == null ? type : result.outerType();
+            if (next instanceof InnerClassType innerClassType) {
+                result = innerClassType;
+            } else {
+                throw new AssertionError("Unexpected type " + type);
+            }
+        }
+        return result;
+    }
+
 
     private SpecializedTypeUtils() {
         throw new AssertionError();

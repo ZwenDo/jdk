@@ -1,12 +1,17 @@
 package java.util.ptype.model;
 
+import jdk.internal.vm.annotation.Stable;
+
+import java.util.ptype.SpecializedTypeUtils;
 import java.util.ptype.util.Utils;
 
 /// Represents an inner class type.
 public final class InnerClassType implements SpecializedType {
 
+    @Stable
     private final SpecializedType outer;
 
+    @Stable
     private final SpecializedType inner;
 
     /// Creates a new inner class type.
@@ -27,11 +32,16 @@ public final class InnerClassType implements SpecializedType {
         return outer;
     }
 
-    /// Gets the inner type
+    /// Gets the n-th nested type, 0 being the outermost type.
     ///
     /// @return the inner type
     public SpecializedType innerType() {
         return inner;
+    }
+
+    @Override
+    public String toString() {
+        return SpecializedTypeUtils.stringify(this);
     }
 
 //    public void appendToBuilder(StringBuilder builder) {

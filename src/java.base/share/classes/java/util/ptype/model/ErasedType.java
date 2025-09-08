@@ -1,5 +1,7 @@
 package java.util.ptype.model;
 
+import java.util.ptype.SpecializedTypeUtils;
+
 /// Represent the erased type, used in [ParameterizedType] to represent rawtypes.
 public final class ErasedType implements SpecializedType {
 
@@ -18,6 +20,6 @@ public final class ErasedType implements SpecializedType {
 
     @Override
     public String toString() {
-        return "ErasedType";
+        return SpecializedTypeUtils.stringify(this);
     }
 }

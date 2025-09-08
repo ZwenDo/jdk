@@ -1,11 +1,15 @@
 package java.util.ptype.model;
 
 
+import jdk.internal.vm.annotation.Stable;
+
+import java.util.ptype.SpecializedTypeUtils;
 import java.util.ptype.util.Utils;
 
 /// Represents a class type.
 public final class ClassType extends ConcreteSpecializedType implements SpecializedType {
 
+    @Stable
     private final Class<?> type;
 
     /// Gets the type
@@ -29,6 +33,11 @@ public final class ClassType extends ConcreteSpecializedType implements Speciali
     public ClassType(String type) {
         Utils.requireNonNull(type);
         this.type = Utils.findClassByName(type);
+    }
+
+    @Override
+    public String toString() {
+        return SpecializedTypeUtils.stringify(this);
     }
 
 //    public void appendToBuilder(StringBuilder builder) {
