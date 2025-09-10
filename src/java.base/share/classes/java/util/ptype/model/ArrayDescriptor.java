@@ -6,15 +6,15 @@ import java.util.ptype.SpecializedTypeUtils;
 import java.util.ptype.util.Utils;
 
 /// Represents an array type.
-public final class ArrayType implements SpecializedType {
+public final class ArrayDescriptor implements SpecializedTypeDescriptor {
 
     @Stable
-    private final SpecializedType componentType;
+    private final SpecializedTypeDescriptor componentType;
 
     /// Creates a new array type.
     ///
     /// @param componentType the component type
-    public ArrayType(SpecializedType componentType) {
+    public ArrayDescriptor(SpecializedTypeDescriptor componentType) {
         Utils.requireNonNull(componentType);
         this.componentType = componentType;
     }
@@ -22,7 +22,7 @@ public final class ArrayType implements SpecializedType {
     /// Gets the component type of this array type.
     ///
     /// @return the component type
-    public SpecializedType componentType() {
+    public SpecializedTypeDescriptor componentType() {
         return componentType;
     }
 

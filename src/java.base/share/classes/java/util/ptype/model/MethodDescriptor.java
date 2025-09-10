@@ -8,15 +8,15 @@ import java.util.ptype.util.ArrayList;
 import java.util.ptype.util.Utils;
 
 /// Represents the type arguments of a method.
-public final class SpecializedMethodTypeArguments implements SpecializedTypeContainer {
+public final class MethodDescriptor {
 
     @Stable
-    private final ArrayList<SpecializedType> arguments;
+    private final ArrayList<SpecializedTypeDescriptor> arguments;
 
     /// Creates a new instance.
     ///
     /// @param arguments the arguments of the method
-    public SpecializedMethodTypeArguments(SpecializedType... arguments) {
+    public MethodDescriptor(SpecializedTypeDescriptor... arguments) {
         if (arguments.length == 0) {
             throw new IllegalArgumentException("Cannot create a specialized method type arguments instance without type arguments");
         }
@@ -28,7 +28,7 @@ public final class SpecializedMethodTypeArguments implements SpecializedTypeCont
     ///
     /// @param index the index at which get the specialized type.
     /// @return the found index
-    public SpecializedType typeArgument(int index) {
+    public SpecializedTypeDescriptor typeArgument(int index) {
         Objects.checkIndex(index, arguments.size());
         return arguments.get(index);
     }
@@ -42,7 +42,7 @@ public final class SpecializedMethodTypeArguments implements SpecializedTypeCont
         return builder.toString();
     }
 
-    private static void checkRaw(SpecializedType[] arguments) {
+    private static void checkRaw(SpecializedTypeDescriptor[] arguments) {
         var isRaw = arguments[0] == ErasedType.instance();
         for (var argument : arguments) {
             if (argument == ErasedType.instance() != isRaw) {

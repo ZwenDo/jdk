@@ -6,51 +6,53 @@ import java.util.ptype.model.*;
 import java.util.ptype.util.Utils;
 
 
-/// Class providing operations on [SpecializedTypes][SpecializedType].
+/// Class providing operations on [SpecializedTypes][SpecializedTypeDescriptor].
 public final class SpecializedTypeUtils {
 
     //region Stringify
 
-    /// Return the [String] representation of a given [SpecializedType].
+    /// Return the [String] representation of a given [SpecializedTypeDescriptor].
     ///
     /// @param type the specialized type we want the string representation of
     /// @return the string representation of the specialized type
-    public static String stringify(SpecializedType type) {
+    public static String stringify(SpecializedTypeDescriptor type) {
         Utils.requireNonNull(type);
         var builder = new StringBuilder();
         appendToBuilder(builder, type);
         return builder.toString();
     }
 
-    /// Appends the string representation of a [SpecializedType] to a [StringBuilder]
+    /// Appends the string representation of a [SpecializedTypeDescriptor] to a [StringBuilder]
     ///
     /// @param builder the builder
     /// @param type the specialized type
-    public static void appendToBuilder(StringBuilder builder, SpecializedType type) {
+    public static void appendToBuilder(StringBuilder builder, SpecializedTypeDescriptor type) {
         Utils.requireNonNull(builder);
         Utils.requireNonNull(type);
         switch (type) {
-            case ArrayType arrayType:
-                appendToBuilder(builder, arrayType.componentType());
+            case ArrayDescriptor arrayDescriptor:
+                appendToBuilder(builder, arrayDescriptor.componentType());
                 builder.append("[]");
                 break;
-            case ClassType classType:
-                builder.append(classType.type().getSimpleName());
-                break;
-            case InnerClassType innerClassType:
-                appendToBuilder(builder, innerClassType.outerType());
-                builder.append('.');
-                appendToBuilder(builder, innerClassType.innerType());
-                break;
-            case ParameterizedType parameterizedType:
-                builder.append(parameterizedType.rawType().getSimpleName());
-                if (parameterizedType.isRaw()) {
+            case ClassDescriptor classDescriptor:
+                if (classDescriptor.outer() != null) {
+                    appendToBuilder(builder, classDescriptor.outer());
+                    builder.append('.');
+                }
+
+                builder.append(classDescriptor.type().getSimpleName());
+
+                if (classDescriptor.typeArguments().isEmpty()) break;
+
+                if (classDescriptor.isRaw()) {
+                    builder.append("(raw)");
                     break;
                 }
+
                 builder.append('<');
-                parameterizedType.typeArguments()
-                        .joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
+                classDescriptor.typeArguments().joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
                 builder.append('>');
+
                 break;
             case ErasedType _:
                 builder.append("erased");
@@ -63,9 +65,8 @@ public final class SpecializedTypeUtils {
 
     //endregion
 
-    //region Type Extraction
-
-    /// Extracts a specific [SpecializedType] contained in a [SpecializedTypeContainer].
+    //region Extraction
+    /// Extracts a specific nested [SpecializedTypeDescriptor] from another [SpecializedTypeDescriptor].
     ///
     /// Each index in the `indices` argument represent a level of nesting in the `container` specialized type.
     ///
@@ -76,37 +77,26 @@ public final class SpecializedTypeUtils {
     ///
     /// @param container the container in which we want to extract information
     /// @param indices the indices of the information in the container, each element representing a new level of nesting
-    /// @return the extracted [SpecializedType]
-    public static SpecializedType extract(SpecializedTypeContainer container, int... indices) {
+    /// @return the extracted [SpecializedTypeDescriptor]
+    public static SpecializedTypeDescriptor extract(SpecializedTypeDescriptor container, int... indices) {
         Utils.requireNonNull(container);
         Utils.requireNonNull(indices);
         if (indices.length == 0) {
             throw new IllegalArgumentException("indices.length == 0");
         }
-        switch (container) {
-            case SpecializedMethodTypeArguments mta:
-                var arg = mta.typeArgument(indices[0]);
-                return indices.length == 1 ? arg : extract(arg, 1, indices);
-            case SpecializedType specializedType:
-                return extract(specializedType, 0, indices);
-            default:
-                throw new AssertionError("Unexpected value: " + container);
-        }
-    }
 
-    private static SpecializedType extract(SpecializedType type, int start, int[] indices) {
-        var currentType = type;
-        var currentStep = start;
-        var index = indices[currentStep]; // we know that when entering the method, currentStep < indices.length.
-
-        while (currentStep < indices.length) {
+        var currentType = container;
+        for (var index : indices) {
             switch (currentType) {
-                case ParameterizedType p:
+                case ClassDescriptor p:
+                    if (p.typeArguments().isEmpty()) throw new AssertionError(p + " is not parameterized.");
                     currentType = p.typeArguments().get(index);
-                    index = indices[currentStep++];
                     break;
-                case ArrayType a:
+                case ArrayDescriptor a:
                     currentType = a.componentType();
+                    while (currentType instanceof ArrayDescriptor arrayDescriptor) {
+                        currentType = arrayDescriptor.componentType();
+                    }
                     break;
                 default:
                     throw new AssertionError("Unexpected value: " + currentType);
@@ -115,11 +105,45 @@ public final class SpecializedTypeUtils {
 
         return currentType;
     }
+
+    /// Extracts the specialized type information viewed as one of its supertypes.
+    ///
+    /// @param obj the object containing the specialized type
+    /// @param type the supertype we want to see it as
+    /// @return the super specialized type
+    public static SpecializedTypeDescriptor extractsFieldAsSuper(Object obj, Class<?> type) {
+        Utils.requireNonNull(obj);
+        Utils.requireNonNull(type);
+        var field = Internal.extractInformationField(obj);
+        if (field.isEmpty()) {
+            return null;
+        }
+        var specializedType = field.get();
+        switch (specializedType) {
+            case ClassDescriptor parameterizedType:
+                return parameterizedType.asSuper(type);
+            default:
+                throw new AssertionError("Unexpected type " + type);
+        }
+    }
+
+    /// Extracts the specialized type information.
+    ///
+    /// @param obj the object containing the specialized type
+    /// @return the specialized type
+    public static SpecializedTypeDescriptor extractField(Object obj) {
+        Utils.requireNonNull(obj);
+        var field = Internal.extractInformationField(obj);
+        if (field.isEmpty()) {
+            return null;
+        }
+        return field.get();
+    }
     //endregion
 
     //region Type Verification
 
-    /// Tests whether a given object has the expected [SpecializedType] and returns it. This method will print an error
+    /// Tests whether a given object has the expected [SpecializedTypeDescriptor] and returns it. This method will print an error
     /// if the `obj` is not a subtype of the `expected` specialized type.
     ///
     /// @param obj the object to test
@@ -127,7 +151,7 @@ public final class SpecializedTypeUtils {
     /// @return the object
     public static Object checkCast(
             Object obj,
-            SpecializedType expected
+            SpecializedTypeDescriptor expected
     ) {
         Utils.requireNonNull(expected);
         if (!VM.isBooted()) return obj;
@@ -141,7 +165,7 @@ public final class SpecializedTypeUtils {
         return obj;
     }
 
-    private static boolean isInstance(Object obj, SpecializedType expected) {
+    private static boolean isInstance(Object obj, SpecializedTypeDescriptor expected) {
         return false;
 //        switch (expected) {
 //            // var cast = (A<String>.B<Integer>) obj;
@@ -187,7 +211,7 @@ public final class SpecializedTypeUtils {
 //        }
     }
 
-    private static boolean validate(Object obj, SpecializedType expected, Class<?> supertype) {
+    private static boolean validate(Object obj, SpecializedTypeDescriptor expected, Class<?> supertype) {
         var objClass = obj.getClass();
         var opt = Internal.extractInformationField(obj);
         if (opt.isEmpty()) {
@@ -196,7 +220,7 @@ public final class SpecializedTypeUtils {
         return isAssignable(expected, opt.get());
     }
 
-    private static String errorMessage(Object obj, SpecializedType expected) {
+    private static String errorMessage(Object obj, SpecializedTypeDescriptor expected) {
         var objClass = obj.getClass();
         if (objClass.isAnonymousClass()) {
             var interfaces = objClass.getInterfaces();
@@ -217,53 +241,29 @@ public final class SpecializedTypeUtils {
         return builder.toString();
     }
 
-    private static boolean isAssignable(SpecializedType expected, SpecializedType actual) {
+    private static boolean isAssignable(SpecializedTypeDescriptor expected, SpecializedTypeDescriptor actual) {
         return false;
     }
     //endregion
-
-    /// Extracts the specialized type information viewed as one of its supertypes.
-    ///
-    /// @param obj the object containing the specialized type
-    /// @param type the supertype we want to see it as
-    /// @return the super specialized type
-    public static SpecializedType extractsAsSuper(Object obj, Class<?> type) {
-        Utils.requireNonNull(obj);
-        Utils.requireNonNull(type);
-        var field = Internal.extractInformationField(obj);
-        if (field.isEmpty()) {
-            return null;
-        }
-        var specializedType = field.get();
-        switch (specializedType) {
-            case ParameterizedType parameterizedType:
-                return parameterizedType.asSuper(type);
-            case ClassType classType:
-                return classType.asSuper(type);
-            default:
-                throw new AssertionError("Unexpected type " + type);
-        }
-    }
 
     /// Gets the n-th outermost type in an inner class hierarchy, 0 being the innermost class.
     ///
     /// @param type the type
     /// @param index the index
     /// @return the corresponding type
-    public static SpecializedType nestedClass(SpecializedType type, int index) {
+    public static ClassDescriptor nestedClass(ClassDescriptor type, int index) {
         Utils.requireNonNull(type);
         if (index < 0) {
             throw new IllegalArgumentException("index < 0");
         }
-        InnerClassType result = null;
-        for (var i = 0; i <= index; i++) {
-            var next = result == null ? type : result.outerType();
-            if (next instanceof InnerClassType innerClassType) {
-                result = innerClassType;
-            } else {
-                throw new AssertionError("Unexpected type " + type);
-            }
+
+        var result = type;
+        for (var i = 0; i < index; i++) {
+            var next = type.outer();
+            if (next == null) throw new AssertionError(type + " has no outer type.");
+            result = next;
         }
+
         return result;
     }
 

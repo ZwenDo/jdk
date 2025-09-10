@@ -1,51 +1,29 @@
 package java.util.ptype;
 
-import java.util.ptype.model.SpecializedMethodTypeArguments;
-import java.util.ptype.model.SpecializedType;
-import java.util.ptype.util.Utils;
+import java.util.EnumSet;
+import java.util.ResourceBundle;
+import java.util.ptype.model.MethodDescriptor;
+import java.util.ptype.model.SpecializedTypeDescriptor;
 
 /// Class handling type argument propagation through method calls.
 public final class SpecializedTypePassingHandler {
 
     /// Passed to any regular method call.
-    private SpecializedMethodTypeArguments passedMethodTypeArgs;
+    private MethodDescriptor passedMethodTypeArgs;
 
     /// Specialized type passed to constructor.
-    private SpecializedType constructorTypeArgs;
+    private SpecializedTypeDescriptor constructorTypeArgs;
 
     /// Field used to identify the class who pushed the argument.
     private Class<?> caller;
 
-    private static final StackWalker WALKER = null;
-//        StackWalker.getInstance(
-//        Set.of(
-//            StackWalker.Option.RETAIN_CLASS_REFERENCE,
-//            StackWalker.Option.DROP_METHOD_INFO
-//        )
-//    );
+    private static final class Holder {
 
-    /// Utility method to simplify AST modification by the compiler when we need to push type arguments before a method
-    /// call.
-    ///
-    /// @param e1       the first expression
-    /// @param e2       the second expression
-    /// @param baseExpression the base expression that will use the type arguments
-    /// @param <E>            the type of the base expression
-    /// @return the result of the base expression
-    public static <E> E pre(Void e1, Void e2, E baseExpression) {
-        return baseExpression;
-    }
+        private static final StackWalker WALKER = StackWalker.getInstance(
+                EnumSet.of(StackWalker.Option.RETAIN_CLASS_REFERENCE, StackWalker.Option.DROP_METHOD_INFO),
+                1
+        );
 
-    /// Utility method to simplify AST modification by the compiler when we need to push type arguments after a method
-    /// call.
-    ///
-    /// @param baseExpression the base expression that will use the type arguments
-    /// @param e1       the first expression
-    /// @param e2       the second expression
-    /// @param <E>            the type of the base expression
-    /// @return the result of the base expression
-    public static <E> E post(E baseExpression, Void e1, Void e2) {
-        return baseExpression;
     }
 
     /// Returns the type arguments for the current method. This method accepts a parameter representing the actualCaller
@@ -54,7 +32,7 @@ public final class SpecializedTypePassingHandler {
     ///
     /// @param actualCaller the caller of the current method, or null if we don't need to know the caller.
     /// @return the type arguments for the current method
-    public static SpecializedMethodTypeArguments methodTypeArguments(Class<?> actualCaller) {
+    public static MethodDescriptor methodTypeArguments(Class<?> actualCaller) {
         var instance = instance();
         var args = instance.passedMethodTypeArgs;
         instance.passedMethodTypeArgs = null;
@@ -75,7 +53,7 @@ public final class SpecializedTypePassingHandler {
     /// Returns the argument for the current constructor call.
     ///
     /// @return the argument for the current constructor call
-    public static SpecializedType constructorTypeArguments() {
+    public static SpecializedTypeDescriptor constructorTypeArguments() {
         var instance = instance();
         var args = instance.constructorTypeArgs;
         instance.constructorTypeArgs = null;
@@ -86,12 +64,10 @@ public final class SpecializedTypePassingHandler {
     ///
     /// @param arg    the type argument to push
     /// @param caller the expected caller. It will be used when retrieving the arg for comparison
-    /// @return null
-    public static Void pushMethod(SpecializedMethodTypeArguments arg, Class<?> caller) {
+    public static void pushMethod(MethodDescriptor arg, Class<?> caller) {
         var instance = instance();
         instance.passedMethodTypeArgs = arg;
         instance.caller = caller;
-        return null;
     }
 
     /// Pops the method type arguments.
@@ -103,11 +79,9 @@ public final class SpecializedTypePassingHandler {
     /// Pushes the type to the stack before a constructor call.
     ///
     /// @param arg the argument to push
-    /// @return null
-    public static Void pushConstructor(SpecializedType arg) {
+    public static void pushConstructor(SpecializedTypeDescriptor arg) {
         var instance = instance();
         instance.constructorTypeArgs = arg;
-        return null;
     }
 
     private static SpecializedTypePassingHandler instance() {
@@ -118,7 +92,7 @@ public final class SpecializedTypePassingHandler {
     ///
     /// @return the stack walker
     public static StackWalker walker() {
-        return WALKER;
+        return Holder.WALKER;
     }
 
     /// Creates a new instance.

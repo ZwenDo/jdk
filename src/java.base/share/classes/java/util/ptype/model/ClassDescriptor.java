@@ -3,14 +3,66 @@ package java.util.ptype.model;
 
 import jdk.internal.vm.annotation.Stable;
 
+import java.util.ptype.Internal;
 import java.util.ptype.SpecializedTypeUtils;
+import java.util.ptype.util.ArrayList;
+import java.util.ptype.util.HashMap;
 import java.util.ptype.util.Utils;
 
 /// Represents a class type.
-public final class ClassType extends ConcreteSpecializedType implements SpecializedType {
+public final class ClassDescriptor implements SpecializedTypeDescriptor {
+
+    @Stable
+    private final ClassDescriptor outer;
 
     @Stable
     private final Class<?> type;
+
+    @Stable
+    private final ArrayList<SpecializedTypeDescriptor> typeArguments;
+
+    /// We always set the highest bit for stable
+    ///
+    /// 0x0000_0001 raw
+    /// 0x0000_0010 has outer
+    @Stable
+    private final byte flags;
+
+    @Stable
+    private HashMap<Class<?>, SpecializedTypeDescriptor> superTypes = null;
+
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param outer the outer class
+    /// @param type the type
+    /// @param typeArguments the type arguments
+    public ClassDescriptor(ClassDescriptor outer, Class<?> type, SpecializedTypeDescriptor... typeArguments) {
+        Utils.requireNonNull(type);
+        Utils.requireNonNull(typeArguments);
+        this.outer = outer;
+        this.type = type;
+        var flags = DEFAULT;
+        if (outer != null) flags |= HAS_OUTER;
+        if (isRawArray(typeArguments)) flags |= IS_RAW;
+        this.typeArguments = ArrayList.of(typeArguments);
+        this.flags = flags;
+    }
+
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param outer the outer class
+    /// @param type the type as a string.
+    /// @param typeArguments the type arguments
+    public ClassDescriptor(ClassDescriptor outer, String type, SpecializedTypeDescriptor... typeArguments) {
+        this(outer, Utils.findClassByName(type), typeArguments);
+    }
+
+    /// Gets the outer type if it exists.
+    ///
+    /// @return the outer type
+    public ClassDescriptor outer() {
+        return hasOuter() ? outer : null;
+    }
 
     /// Gets the type
     ///
@@ -19,26 +71,57 @@ public final class ClassType extends ConcreteSpecializedType implements Speciali
         return type;
     }
 
-    /// Creates a new [ClassType].
+    /// Gets the type arguments.
     ///
-    /// @param type the type
-    public ClassType(Class<?> type) {
-        Utils.requireNonNull(type);
-        this.type = type;
+    /// @return the type arguments
+    public ArrayList<SpecializedTypeDescriptor> typeArguments() {
+        return typeArguments;
     }
 
-    /// Creates a new [ClassType].
+    /// Whether this parameterized type represents a raw type.
     ///
-    /// @param type the type as a string.
-    public ClassType(String type) {
-        Utils.requireNonNull(type);
-        this.type = Utils.findClassByName(type);
+    /// @return true if this parameterized type represents a rawtype; false otherwise.
+    public boolean isRaw() {
+        return (flags & IS_RAW) != 0;
+    }
+
+    /// Sees the current descriptor as one of its super type.
+    ///
+    /// @param type the super type
+    /// @return the current descriptor as one of its super types
+    public SpecializedTypeDescriptor asSuper(Class<?> type) {
+        if (superTypes == null) {
+            superTypes = Internal.generateSuperTypes(this.type, this);
+        }
+        return superTypes.get(type);
     }
 
     @Override
     public String toString() {
         return SpecializedTypeUtils.stringify(this);
     }
+
+    private boolean hasOuter() {
+        return (flags & HAS_OUTER) != 0;
+    }
+
+    private static boolean isRawArray(SpecializedTypeDescriptor[] typeArguments) {
+        if (typeArguments.length == 0) return false;
+        var isRaw = typeArguments[0] == ErasedType.instance();
+        for (var typeArgument : typeArguments) {
+            Utils.requireNonNull(typeArgument);
+            if (typeArgument == ErasedType.instance() != isRaw) {
+                throw new IllegalArgumentException("Cannot create a partially erazed parameterized type.");
+            }
+        }
+        return isRaw;
+    }
+
+    private static final byte IS_RAW = 0b0000_0001;
+
+    private static final byte HAS_OUTER = 0b0000_0010;
+
+    private static final byte DEFAULT = (byte) 0b1000_0000;
 
 //    public void appendToBuilder(StringBuilder builder) {
 //        builder.append(type.getSimpleName());

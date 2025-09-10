@@ -4,7 +4,7 @@ package java.util.ptype.model;
 import java.util.ptype.SpecializedTypeUtils;
 
 /// The unknown type
-public final class UnknownType implements SpecializedType {
+public final class UnknownType implements SpecializedTypeDescriptor {
 
     private static final UnknownType INSTANCE = new UnknownType();
 
