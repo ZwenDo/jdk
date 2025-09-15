@@ -1,8 +1,7 @@
 package java.util.ptype;
 
-import java.util.ptype.model.ParameterizedType;
 
-/// Represent the erased type, used in [ParameterizedType] to represent rawtypes.
+/// Represent the erased type, used in to represent rawtypes.
 public final class ErasedType implements SpecializedTypeDescriptor {
 
     private static final ErasedType INSTANCE = new ErasedType();

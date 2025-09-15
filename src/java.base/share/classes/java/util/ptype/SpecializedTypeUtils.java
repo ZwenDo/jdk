@@ -8,61 +8,6 @@ import java.util.ptype.util.Utils;
 /// Class providing operations on [SpecializedTypes][SpecializedTypeDescriptor].
 public final class SpecializedTypeUtils {
 
-    //region Extraction
-    /// Extracts a specific nested [SpecializedTypeDescriptor] from another [SpecializedTypeDescriptor].
-    ///
-    /// Each index in the `indices` argument represent a level of nesting in the `container` specialized type.
-    ///
-    /// Here is an example of how this method works:
-    ///
-    /// given the type `type` representing `List<Function<String, Integer>>`, the following call `extract(type, 0)` will
-    /// return `Function<String, Integer>`. The call `extract(type, 0, 1)` will yield `Integer`
-    ///
-    /// @param container the container in which we want to extract information
-    /// @param indices the indices of the information in the container, each element representing a new level of nesting
-    /// @return the extracted [SpecializedTypeDescriptor]
-    public static SpecializedTypeDescriptor extract(SpecializedTypeDescriptor container, int... indices) {
-        Utils.requireNonNull(container);
-        Utils.requireNonNull(indices);
-        if (indices.length == 0) {
-            throw new IllegalArgumentException("indices.length == 0");
-        }
-
-        var currentType = container;
-        for (var index : indices) {
-            switch (currentType) {
-                case ClassDescriptor p:
-                    if (p.typeArguments().isEmpty()) throw new AssertionError(p + " is not parameterized.");
-                    currentType = p.typeArguments().get(index);
-                    break;
-                case ArrayDescriptor a:
-                    currentType = a.componentType();
-                    while (currentType instanceof ArrayDescriptor arrayDescriptor) {
-                        currentType = arrayDescriptor.componentType();
-                    }
-                    break;
-                default:
-                    throw new AssertionError("Unexpected value: " + currentType);
-            }
-        }
-
-        return currentType;
-    }
-
-    /// Extracts the specialized type information.
-    ///
-    /// @param obj the object containing the specialized type
-    /// @return the specialized type
-    public static SpecializedTypeDescriptor extractField(Object obj) {
-        Utils.requireNonNull(obj);
-        var field = Internal.extractInformationField(obj);
-        if (field.isEmpty()) {
-            return null;
-        }
-        return field.get();
-    }
-    //endregion
-
     //region Stringify
     static String stringify(SpecializedTypeDescriptor type) {
         Utils.requireNonNull(type);
