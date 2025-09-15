@@ -1,9 +1,6 @@
 package java.util.ptype;
 
 import java.util.EnumSet;
-import java.util.ResourceBundle;
-import java.util.ptype.model.MethodDescriptor;
-import java.util.ptype.model.SpecializedTypeDescriptor;
 
 /// Class handling type argument propagation through method calls.
 public final class SpecializedTypePassingHandler {

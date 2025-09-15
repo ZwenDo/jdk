@@ -1340,6 +1340,8 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
 
         public boolean isPermittedExplicit = false;
 
+        public VarSymbol descriptorField;
+
         private record PermittedClassWithPos(Symbol permittedClass, int pos) {}
 
         public ClassSymbol(long flags, Name name, Type type, Symbol owner) {

@@ -7,7 +7,6 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.ptype.model.SpecializedTypeDescriptor;
 import java.util.ptype.util.HashMap;
 import java.util.ptype.util.Optional;
 import java.util.ptype.util.Utils;
@@ -19,12 +18,12 @@ public final class Internal {
         @Override
         protected Optional<MethodHandle> computeValue(Class<?> type) {
             try {
-                var getter = Holder.LOOKUP.findGetter(type, "$typeArguments", SpecializedTypeDescriptor.class);
+                var getter = Holder.LOOKUP.findStatic(type, "$getDescriptorStatic", MethodType.methodType(ClassDescriptor.class, type));
                 return Optional.of(getter);
-            } catch (NoSuchFieldException e) {
-                return Optional.empty();
             } catch (IllegalAccessException e) {
                 throw new AssertionError(e);
+            } catch (NoSuchMethodException e) {
+                return Optional.empty();
             }
         }
     };
@@ -36,7 +35,7 @@ public final class Internal {
                 return Holder.LOOKUP.findStatic(
                         type,
                         "$computeSuper",
-                        MethodType.methodType(HashMap.class, SpecializedTypeDescriptor.class)
+                        MethodType.methodType(HashMap.class, ClassDescriptor.class)
                 );
             } catch (NoSuchMethodException | IllegalAccessException e) {
                 throw new AssertionError(e);
@@ -44,11 +43,11 @@ public final class Internal {
         }
     };
 
-    static Optional<SpecializedTypeDescriptor> extractInformationField(Object obj) {
+    static Optional<ClassDescriptor> extractInformationField(Object obj) {
         var getter = FIELD_CACHE.get(obj.getClass());
         if (getter.isEmpty()) return Optional.empty();
         try {
-            return Optional.of((SpecializedTypeDescriptor) getter.get().invoke(obj));
+            return Optional.of((ClassDescriptor) getter.get().invoke(obj));
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }
@@ -60,12 +59,12 @@ public final class Internal {
     /// @param concrete the concrete specialized type
     /// @return the map associating all the supertypes to their value
     @SuppressWarnings("unchecked")
-    public static HashMap<Class<?>, SpecializedTypeDescriptor> generateSuperTypes(Class<?> type, SpecializedTypeDescriptor concrete) {
+    public static HashMap<Class<?>, ClassDescriptor> generateSuperTypes(Class<?> type, ClassDescriptor concrete) {
         Utils.requireNonNull(type);
         Utils.requireNonNull(concrete);
         try {
             var method = SUPER_GENERATION_CACHE.get(type);
-            return (HashMap<Class<?>, SpecializedTypeDescriptor>) method.invokeExact(concrete);
+            return (HashMap<Class<?>, ClassDescriptor>) method.invokeExact(concrete);
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }

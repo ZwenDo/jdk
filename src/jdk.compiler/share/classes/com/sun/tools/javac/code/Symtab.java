@@ -214,13 +214,11 @@ public class Symtab {
     public final Type trustMeType;
     public final Type lambdaMetafactory;
     public final Type specializedTypeDescriptorType;
+    public final Type specializedTypeUtilsClassType;
     public final Type methodDescriptorType;
     public final Type classDescriptorType;
     public final Type erasedTypeType;
-    public final Type unknownTypeType;
     public final Type arrayDescriptorType;
-//    public final Type intersectionType;
-//    public final Type wildcardType;
     public final Type specializedTypeUtilsType;
     public final Type specializedTypePassingHandleType;
     public final Type specializedTypeHashMap;
@@ -618,12 +616,12 @@ public class Symtab {
         trustMeType = enterClass("java.lang.SafeVarargs");
         nativeHeaderType = enterClass("java.lang.annotation.Native");
         lambdaMetafactory = enterClass("java.lang.invoke.LambdaMetafactory");
-        specializedTypeDescriptorType = enterClass("java.util.ptype.model.SpecializedTypeDescriptor");
-        methodDescriptorType = enterClass("java.util.ptype.model.MethodDescriptor");
-        classDescriptorType = enterClass("java.util.ptype.model.ClassDescriptor");
-        erasedTypeType = enterClass("java.util.ptype.model.ErasedType");
-        unknownTypeType = enterClass("java.util.ptype.model.UnknownType");
-        arrayDescriptorType = enterClass("java.util.ptype.model.ArrayDescriptor");
+        specializedTypeDescriptorType = enterClass("java.util.ptype.SpecializedTypeDescriptor");
+        specializedTypeUtilsClassType = enterClass("java.util.ptype.util.Utils");
+        methodDescriptorType = enterClass("java.util.ptype.MethodDescriptor");
+        classDescriptorType = enterClass("java.util.ptype.ClassDescriptor");
+        erasedTypeType = enterClass("java.util.ptype.ErasedType");
+        arrayDescriptorType = enterClass("java.util.ptype.ArrayDescriptor");
         specializedTypeUtilsType = enterClass("java.util.ptype.SpecializedTypeUtils");
         specializedTypePassingHandleType = enterClass("java.util.ptype.SpecializedTypePassingHandler");
         specializedTypeHashMap = enterClass("java.util.ptype.util.HashMap");
@@ -664,12 +662,10 @@ public class Symtab {
         synthesizeBoxTypeIfMissing(voidType);
 
         synthesizeEmptyInterfaceIfMissing(specializedTypeDescriptorType);
+        synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsClassType);
         synthesizeEmptyInterfaceIfMissing(classDescriptorType);
         synthesizeEmptyInterfaceIfMissing(erasedTypeType);
-        synthesizeEmptyInterfaceIfMissing(unknownTypeType);
         synthesizeEmptyInterfaceIfMissing(arrayDescriptorType);
-//        synthesizeEmptyInterfaceIfMissing(intersectionType);
-//        synthesizeEmptyInterfaceIfMissing(wildcardType);
         synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsType);
         synthesizeEmptyInterfaceIfMissing(specializedTypePassingHandleType);
         synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsType);

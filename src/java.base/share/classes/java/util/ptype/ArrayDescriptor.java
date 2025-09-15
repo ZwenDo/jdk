@@ -1,8 +1,7 @@
-package java.util.ptype.model;
+package java.util.ptype;
 
 import jdk.internal.vm.annotation.Stable;
 
-import java.util.ptype.SpecializedTypeUtils;
 import java.util.ptype.util.Utils;
 
 /// Represents an array type.

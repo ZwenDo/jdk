@@ -2,68 +2,11 @@ package java.util.ptype;
 
 import jdk.internal.misc.VM;
 
-import java.util.ptype.model.*;
 import java.util.ptype.util.Utils;
 
 
 /// Class providing operations on [SpecializedTypes][SpecializedTypeDescriptor].
 public final class SpecializedTypeUtils {
-
-    //region Stringify
-
-    /// Return the [String] representation of a given [SpecializedTypeDescriptor].
-    ///
-    /// @param type the specialized type we want the string representation of
-    /// @return the string representation of the specialized type
-    public static String stringify(SpecializedTypeDescriptor type) {
-        Utils.requireNonNull(type);
-        var builder = new StringBuilder();
-        appendToBuilder(builder, type);
-        return builder.toString();
-    }
-
-    /// Appends the string representation of a [SpecializedTypeDescriptor] to a [StringBuilder]
-    ///
-    /// @param builder the builder
-    /// @param type the specialized type
-    public static void appendToBuilder(StringBuilder builder, SpecializedTypeDescriptor type) {
-        Utils.requireNonNull(builder);
-        Utils.requireNonNull(type);
-        switch (type) {
-            case ArrayDescriptor arrayDescriptor:
-                appendToBuilder(builder, arrayDescriptor.componentType());
-                builder.append("[]");
-                break;
-            case ClassDescriptor classDescriptor:
-                if (classDescriptor.outer() != null) {
-                    appendToBuilder(builder, classDescriptor.outer());
-                    builder.append('.');
-                }
-
-                builder.append(classDescriptor.type().getSimpleName());
-
-                if (classDescriptor.typeArguments().isEmpty()) break;
-
-                if (classDescriptor.isRaw()) {
-                    builder.append("(raw)");
-                    break;
-                }
-
-                builder.append('<');
-                classDescriptor.typeArguments().joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
-                builder.append('>');
-
-                break;
-            case ErasedType _:
-                builder.append("erased");
-                break;
-            case UnknownType _:
-                builder.append('?');
-                break;
-        }
-    }
-
-    //endregion
 
     //region Extraction
     /// Extracts a specific nested [SpecializedTypeDescriptor] from another [SpecializedTypeDescriptor].
@@ -106,27 +49,6 @@ public final class SpecializedTypeUtils {
         return currentType;
     }
 
-    /// Extracts the specialized type information viewed as one of its supertypes.
-    ///
-    /// @param obj the object containing the specialized type
-    /// @param type the supertype we want to see it as
-    /// @return the super specialized type
-    public static SpecializedTypeDescriptor extractsFieldAsSuper(Object obj, Class<?> type) {
-        Utils.requireNonNull(obj);
-        Utils.requireNonNull(type);
-        var field = Internal.extractInformationField(obj);
-        if (field.isEmpty()) {
-            return null;
-        }
-        var specializedType = field.get();
-        switch (specializedType) {
-            case ClassDescriptor parameterizedType:
-                return parameterizedType.asSuper(type);
-            default:
-                throw new AssertionError("Unexpected type " + type);
-        }
-    }
-
     /// Extracts the specialized type information.
     ///
     /// @param obj the object containing the specialized type
@@ -138,6 +60,50 @@ public final class SpecializedTypeUtils {
             return null;
         }
         return field.get();
+    }
+    //endregion
+
+    //region Stringify
+    static String stringify(SpecializedTypeDescriptor type) {
+        Utils.requireNonNull(type);
+        var builder = new StringBuilder();
+        appendToBuilder(builder, type);
+        return builder.toString();
+    }
+
+    static void appendToBuilder(StringBuilder builder, SpecializedTypeDescriptor type) {
+        Utils.requireNonNull(builder);
+        Utils.requireNonNull(type);
+        switch (type) {
+            case ArrayDescriptor arrayDescriptor:
+                appendToBuilder(builder, arrayDescriptor.componentType());
+                builder.append("[]");
+                break;
+            case ClassDescriptor classDescriptor:
+                var outer = classDescriptor.outer();
+                if (outer.isPresent()) {
+                    appendToBuilder(builder, outer.get());
+                    builder.append('.');
+                }
+
+                builder.append(classDescriptor.type().getSimpleName());
+
+                if (classDescriptor.typeArguments().isEmpty()) break;
+
+                if (classDescriptor.isRaw()) {
+                    builder.append("(raw)");
+                    break;
+                }
+
+                builder.append('<');
+                classDescriptor.typeArguments().joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
+                builder.append('>');
+
+                break;
+            case ErasedType _:
+                builder.append("?");
+                break;
+        }
     }
     //endregion
 
@@ -245,27 +211,6 @@ public final class SpecializedTypeUtils {
         return false;
     }
     //endregion
-
-    /// Gets the n-th outermost type in an inner class hierarchy, 0 being the innermost class.
-    ///
-    /// @param type the type
-    /// @param index the index
-    /// @return the corresponding type
-    public static ClassDescriptor nestedClass(ClassDescriptor type, int index) {
-        Utils.requireNonNull(type);
-        if (index < 0) {
-            throw new IllegalArgumentException("index < 0");
-        }
-
-        var result = type;
-        for (var i = 0; i < index; i++) {
-            var next = type.outer();
-            if (next == null) throw new AssertionError(type + " has no outer type.");
-            result = next;
-        }
-
-        return result;
-    }
 
 
     private SpecializedTypeUtils() {

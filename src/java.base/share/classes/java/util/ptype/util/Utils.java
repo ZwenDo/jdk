@@ -1,7 +1,5 @@
 package java.util.ptype.util;
 
-import java.util.Objects;
-
 /// Utility class.
 public final class Utils {
 
@@ -22,11 +20,11 @@ public final class Utils {
     /// @param name the binary name of the class
     /// @return the corresponding clas
     public static Class<?> findClassByName(String name) {
-        Objects.requireNonNull(name);
+        Utils.requireNonNull(name);
         try {
-            return Class.forName(name, false, ClassLoader.getPlatformClassLoader());
+            return Class.forName(name, false, ClassLoader.getSystemClassLoader());
         } catch (ClassNotFoundException e) {
-            throw new AssertionError("Could not load: " + name, e);
+            throw new AssertionError("Could not load " + name);
         }
     }
 
