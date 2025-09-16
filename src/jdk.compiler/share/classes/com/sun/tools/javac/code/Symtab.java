@@ -213,6 +213,7 @@ public class Symtab {
     public final Type autoCloseableType;
     public final Type trustMeType;
     public final Type lambdaMetafactory;
+
     public final Type specializedTypeDescriptorType;
     public final Type specializedTypeUtilsClassType;
     public final Type methodDescriptorType;
@@ -223,6 +224,9 @@ public class Symtab {
     public final Type specializedTypePassingHandleType;
     public final Type specializedTypeHashMap;
     public final Type stackWalkerType;
+    public final Type compilerIntrinsicType;
+    public final Type optionalType;
+
     public final Type stringConcatFactory;
     public final Type repeatableType;
     public final Type documentedType;
@@ -616,6 +620,7 @@ public class Symtab {
         trustMeType = enterClass("java.lang.SafeVarargs");
         nativeHeaderType = enterClass("java.lang.annotation.Native");
         lambdaMetafactory = enterClass("java.lang.invoke.LambdaMetafactory");
+
         specializedTypeDescriptorType = enterClass("java.util.ptype.SpecializedTypeDescriptor");
         specializedTypeUtilsClassType = enterClass("java.util.ptype.util.Utils");
         methodDescriptorType = enterClass("java.util.ptype.MethodDescriptor");
@@ -626,6 +631,9 @@ public class Symtab {
         specializedTypePassingHandleType = enterClass("java.util.ptype.SpecializedTypePassingHandler");
         specializedTypeHashMap = enterClass("java.util.ptype.util.HashMap");
         stackWalkerType = enterClass("java.lang.StackWalker");
+        compilerIntrinsicType = enterClass("java.lang.annotation.CompilerIntrinsic");
+        optionalType = enterClass("java.util.Optional");
+
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");
         previewFeatureType = enterClass("jdk.internal.javac.PreviewFeature");
@@ -671,6 +679,7 @@ public class Symtab {
         synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsType);
         synthesizeEmptyInterfaceIfMissing(stackWalkerType);
         synthesizeEmptyInterfaceIfMissing(specializedTypeHashMap);
+        synthesizeEmptyInterfaceIfMissing(compilerIntrinsicType);
 
         // Enter a synthetic class that is used to mark internal
         // proprietary classes in ct.sym.  This class does not have a

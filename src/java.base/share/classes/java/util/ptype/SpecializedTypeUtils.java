@@ -12,7 +12,9 @@ public final class SpecializedTypeUtils {
     static String stringify(SpecializedTypeDescriptor type) {
         Utils.requireNonNull(type);
         var builder = new StringBuilder();
+        builder.append("SpecializedTypeDescriptor(");
         appendToBuilder(builder, type);
+        builder.append(")");
         return builder.toString();
     }
 
