@@ -30,7 +30,6 @@ import java.lang.annotation.Inherited;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -836,13 +835,13 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
             else return prefix.append('.', name);
         }
 
-        public void excludeFromNewGenerics() {
+        public void flagForNewGenerics() {
             newGenericsExcluded = 1;
         }
 
-        public boolean isNewGenericsExcluded() {
+        public boolean hasNewGenerics() {
             if (newGenericsExcluded == 0) {
-                var result = TransParameterizedTypes.newGenericsExcluded(this);
+                var result = TransParameterizedTypes.hasNewGenerics(this);
                 newGenericsExcluded = (byte) (result ? 1 : -1);
             }
             return newGenericsExcluded == 1;

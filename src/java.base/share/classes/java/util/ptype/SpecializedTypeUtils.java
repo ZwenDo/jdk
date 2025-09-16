@@ -35,12 +35,13 @@ public final class SpecializedTypeUtils {
 
                 builder.append(classDescriptor.type().getSimpleName());
 
-                if (classDescriptor.typeArguments().isEmpty()) break;
-
                 if (classDescriptor.isRaw()) {
                     builder.append("(raw)");
                     break;
                 }
+
+                if (classDescriptor.typeArguments().isEmpty()) break;
+
 
                 builder.append('<');
                 classDescriptor.typeArguments().joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");

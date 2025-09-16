@@ -4904,6 +4904,7 @@ public class Attr extends JCTree.Visitor {
                 !types.isSameTypes(sym.type.getParameterTypes(),
                                    sym.erasure(types).getParameterTypes())) {
                 chk.warnUnchecked(env.tree.pos(), LintWarnings.UncheckedCallMbrOfRawType(sym, s));
+                flagAsRaw(env.tree);
             }
         }
 
@@ -4953,6 +4954,7 @@ public class Attr extends JCTree.Visitor {
             argtypes = argtypes.map(checkDeferredMap);
 
             if (noteWarner.hasNonSilentLint(LintCategory.UNCHECKED)) {
+                flagAsRaw(env.tree);
                 chk.warnUnchecked(env.tree.pos(), LintWarnings.UncheckedMethInvocationApplied(kindName(sym),
                         sym.name,
                         rs.methodArguments(sym.type.getParameterTypes()),
@@ -4999,6 +5001,20 @@ public class Attr extends JCTree.Visitor {
                     env.tree, sym, site, sym.name, argtypes2, typeargtypes);
             log.report(errDiag);
             return types.createErrorType(site);
+        }
+    }
+
+    private void flagAsRaw(JCTree tree) {
+        switch (tree.getTag()) {
+            case APPLY -> {
+                var app = (JCMethodInvocation) tree;
+                app.isRaw = true;
+            }
+            case NEWCLASS -> {
+                var nc = (JCNewClass) tree;
+                nc.isRaw = true;
+            }
+            default -> throw new AssertionError("Unexpected tree: " + tree);
         }
     }
 
