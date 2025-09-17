@@ -1,7 +1,11 @@
 package java.util.ptype;
 
 import jdk.internal.vm.annotation.Stable;
+import sun.reflect.generics.reflectiveObjects.GenericArrayTypeImpl;
 
+import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.ptype.util.Utils;
 
 /// Represents an array type.
@@ -10,12 +14,21 @@ public final class ArrayDescriptor implements SpecializedTypeDescriptor {
     @Stable
     private final SpecializedTypeDescriptor componentType;
 
+    @Stable
+    private Type javaType;
+
+
+    private ArrayDescriptor(SpecializedTypeDescriptor componentType) {
+        Utils.requireNonNull(componentType);
+        this.componentType = componentType;
+    }
+
     /// Creates a new array type.
     ///
     /// @param componentType the component type
-    public ArrayDescriptor(SpecializedTypeDescriptor componentType) {
-        Utils.requireNonNull(componentType);
-        this.componentType = componentType;
+    /// @return the created type or [ErasedType] if the component type is erased
+    public static SpecializedTypeDescriptor of(SpecializedTypeDescriptor componentType) {
+        return componentType == ErasedType.instance() ? ErasedType.instance() : new ArrayDescriptor(componentType);
     }
 
     /// Gets the component type of this array type.
@@ -30,56 +43,24 @@ public final class ArrayDescriptor implements SpecializedTypeDescriptor {
         return SpecializedTypeUtils.stringify(this);
     }
 
-//    /**
-//     * Creates an {@link ArrayType} from the given component type.
-//     *
-//     * @param componentTypeArgs the component type
-//     * @return the {@link ArrayType}
-//     */
-//    static ArrayType of(Arg componentTypeArgs) {
-//        java.util.ptype.util.Utils.requireNonNull(componentTypeArgs);
-//        return new ArrayType() {
-//
-//            @Override
-//            public void appendTo(StringBuilder builder) {
-//                java.util.ptype.util.Utils.requireNonNull(builder);
-//                componentTypeArgs.appendTo(builder);
-//                builder.append("[]");
-//            }
-//
-//            @Override
-//            public boolean isAssignable(Arg actual, Arg.Variance variance) {
-//                java.util.ptype.util.Utils.requireNonNull(actual);
-//                java.util.ptype.util.Utils.requireNonNull(variance);
-//                if (actual instanceof ArrayType arrayType) {
-//                    return componentTypeArgs.isAssignable(arrayType.componentType(), Variance.INVARIANT);
-//                } else if (actual instanceof ClassType) {
-//                    return false;
-//                } else if (actual instanceof InnerClassType) {
-//                    return false;
-//                } else if (actual instanceof Intersection) {
-//                    return false;
-//                } else if (actual instanceof ParameterizedType) {
-//                    return false;
-//                } else if (actual instanceof RawType) {
-//                    return false;
-//                } else if (actual instanceof Wildcard) {
-//                    return false;
-//                }
-//                throw new IllegalArgumentException();
-//            }
-//
-//            @Override
-//            public Arg componentType() {
-//                return componentTypeArgs;
-//            }
-//
-//            @Override
-//            public String toString() {
-//                return Arg.toString(this);
-//            }
-//
-//        };
-//    }
+    @Override
+    public Type asType() {
+        if (javaType != null) return javaType;
+        var component = componentType.asType();
+        switch (component) {
+            case Class<?> cls:
+                javaType = cls.arrayType();
+                break;
+            case ParameterizedType ptype:
+                javaType = GenericArrayTypeImpl.make(ptype);
+                break;
+            case GenericArrayType gatype:
+                javaType = GenericArrayTypeImpl.make(gatype);
+                break;
+            default:
+                throw new AssertionError("Unknown component type: " + component);
+        }
+        return javaType;
+    }
 
 }

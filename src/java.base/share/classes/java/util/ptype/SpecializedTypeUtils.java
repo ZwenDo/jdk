@@ -2,6 +2,7 @@ package java.util.ptype;
 
 import jdk.internal.misc.VM;
 
+import java.util.Optional;
 import java.util.ptype.util.Utils;
 
 
@@ -159,6 +160,23 @@ public final class SpecializedTypeUtils {
         return false;
     }
     //endregion
+
+    /// Utility method that filters out erased types to return only fully specialized types to users.
+    ///
+    /// @param type the type to filter
+    /// @return the filtered type or null if the type is erased
+    /// @param <T> the type of the specialized type descriptor
+    public static <T extends SpecializedTypeDescriptor> Optional<T> filterErasedType(T type) {
+        Utils.requireNonNull(type);
+        switch (type) {
+            case ArrayDescriptor arrayDescriptor:
+                return Optional.of(type);
+            case ClassDescriptor classDescriptor:
+                return classDescriptor.partiallyRaw() || classDescriptor.isRaw() ? Optional.empty() : Optional.of(type);
+            case ErasedType _:
+                return Optional.empty();
+        }
+    }
 
 
     private SpecializedTypeUtils() {

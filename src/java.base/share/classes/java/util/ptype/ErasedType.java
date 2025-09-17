@@ -1,6 +1,8 @@
 package java.util.ptype;
 
 
+import java.lang.reflect.Type;
+
 /// Represent the erased type, used in to represent rawtypes.
 public final class ErasedType implements SpecializedTypeDescriptor {
 
@@ -13,12 +15,17 @@ public final class ErasedType implements SpecializedTypeDescriptor {
         return INSTANCE;
     }
 
-    private ErasedType() {
-        if (INSTANCE != null) throw new AssertionError();
-    }
-
     @Override
     public String toString() {
         return SpecializedTypeUtils.stringify(this);
+    }
+
+    @Override
+    public Type asType() {
+        throw new AssertionError("Should never be called.");
+    }
+
+    private ErasedType() {
+        if (INSTANCE != null) throw new AssertionError();
     }
 }

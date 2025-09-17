@@ -2,7 +2,9 @@ package java.util.ptype;
 
 
 import jdk.internal.vm.annotation.Stable;
+import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
+import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
@@ -32,6 +34,9 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     @Stable
     private HashMap<Class<?>, ClassDescriptor> superTypes = null;
 
+    @Stable
+    private Type javaType;
+
     /// Creates a new [ClassDescriptor].
     ///
     /// @param outer the outer class
@@ -48,16 +53,17 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         Utils.requireNonNull(typeArguments);
         var flags = DEFAULT;
         if (outer != null) flags |= HAS_OUTER;
-        ArrayList<SpecializedTypeDescriptor> typArgs = null;
+        ArrayList<SpecializedTypeDescriptor> typeArgs = null;
         if (isRaw) {
             if (typeArguments.length != 0) throw new IllegalArgumentException("No type arguments should be present for raw " + type.getSimpleName() + ", but " + Arrays.toString(typeArguments) + " were present.");
             flags |= IS_RAW;
         } else {
-            typArgs = ArrayList.of(typeArguments);
+            typeArgs = ArrayList.of(typeArguments);
+            if (partiallyRawArray(typeArguments)) flags |= PARTIALLY_RAW;
         }
         this.outer = outer;
         this.type = type;
-        this.typeArguments = typArgs;
+        this.typeArguments = typeArgs;
         this.flags = flags;
     }
 
@@ -75,20 +81,12 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         return type;
     }
 
-    /// Whether this parameterized type represents a raw type.
-    ///
-    /// @return true if this parameterized type represents a rawtype; false otherwise.
-    public boolean isRaw() {
-        return (flags & IS_RAW) != 0;
-    }
-
     /// Get the type argument at the n-th position
     ///
     /// @param index the index
     /// @return the type argument
-    public Optional<SpecializedTypeDescriptor> typeArgument(int index) {
-        var result = $typeArgument(index);
-        return result == ErasedType.instance() ? Optional.empty() : Optional.of(result);
+    public SpecializedTypeDescriptor typeArgument(int index) {
+        return isRaw() ? ErasedType.instance() : typeArguments.get(index);
     }
 
     /// Sees the current descriptor as one of its super type.
@@ -104,24 +102,46 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     }
 
     @Override
+    public Type asType() {
+        if (javaType != null) return javaType;
+        if (isRaw()) {
+            javaType = type;
+            return javaType;
+        }
+        var outer = hasOuter() ? this.outer.asType() : null;
+
+        // basic class
+        if ((outer == null || outer instanceof Class<?>) && typeArguments.isEmpty()) {
+            javaType = type;
+            return javaType;
+        }
+
+        var arguments = new Type[typeArguments.size()];
+        for (var i = 0; i < typeArguments.size(); i++) {
+            arguments[i] = typeArguments.get(i).asType();
+        }
+
+        javaType = ParameterizedTypeImpl.make(type, arguments, outer);
+        return javaType;
+    }
+
+    @Override
     public String toString() {
         return SpecializedTypeUtils.stringify(this);
     }
 
-    /// Get the type argument at the n-th position
-    ///
-    /// @param index the index
-    /// @return the type argument
-    public SpecializedTypeDescriptor $typeArgument(int index) {
-        if (isRaw()) return ErasedType.instance();
-        Objects.checkIndex(index, typeArguments.size());
-        return typeArguments.get(index);
+
+    boolean isRaw() {
+        return (flags & IS_RAW) != 0;
+    }
+
+    boolean partiallyRaw() {
+        return (flags & PARTIALLY_RAW) != 0;
     }
 
     ArrayList<SpecializedTypeDescriptor> typeArguments() {
         return typeArguments;
     }
-
     /// Gets the outer type if it exists.
     ///
     /// @return the outer type
@@ -133,97 +153,21 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         return (flags & HAS_OUTER) != 0;
     }
 
-    private static boolean isRawArray(SpecializedTypeDescriptor[] typeArguments) {
-        if (typeArguments.length == 0) return false;
-        var isRaw = typeArguments[0] == ErasedType.instance();
-        for (var typeArgument : typeArguments) {
-            Utils.requireNonNull(typeArgument);
-            if (typeArgument == ErasedType.instance() != isRaw) {
-                throw new IllegalArgumentException("Cannot create a partially erased parameterized type.");
+    private static boolean partiallyRawArray(SpecializedTypeDescriptor[] typeArguments) {
+        for (var typeArg : typeArguments) {
+            if (typeArg == ErasedType.instance() || typeArg instanceof ClassDescriptor cd && (cd.partiallyRaw() || cd.isRaw())) {
+                return true;
             }
         }
-        return isRaw;
+        return false;
     }
 
-    private static final byte IS_RAW = 0b0000_0001;
+    private static final byte IS_RAW = 1;
 
-    private static final byte HAS_OUTER = 0b0000_0010;
+    private static final byte HAS_OUTER = 1 << 1;
+
+    private static final byte PARTIALLY_RAW = 1 << 2;
 
     private static final byte DEFAULT = (byte) 0b1000_0000;
-
-//    public void appendToBuilder(StringBuilder builder) {
-//        builder.append(type.getSimpleName());
-//    }
-
-//    /**
-//     * Creates a {@link ClassType} from the given {@link Class}.
-//     *
-//     * @param type the {@link Class}
-//     * @return the {@link ClassType}
-//     */
-//    static ClassType of(Class<?> type) {
-//        Utils.requireNonNull(type);
-//        return new ClassType() {
-//
-//            @Override
-//            public void appendTo(StringBuilder builder) {
-//                Utils.requireNonNull(builder);
-//                builder.append(type.getSimpleName());
-//            }
-//
-//            @Override
-//            public boolean isAssignable(Arg actual, Variance variance) {
-//                Utils.requireNonNull(actual);
-//                Utils.requireNonNull(variance);
-//                if (variance == Variance.INVARIANT) { // invariant
-//                    return actual instanceof ClassType classType && type.equals(classType.type());
-//                }
-//
-//                if (actual instanceof ClassType classType) {
-//                    return compareClass(classType.type(), variance);
-//                } else if (actual instanceof Intersection intersection) {
-//                    return intersection.bounds().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
-//                } else if (actual instanceof Wildcard wildcard) {
-//                    if (variance == Variance.COVARIANT) {
-//                        return wildcard.upperBound().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
-//                    } else if (variance == Variance.CONTRAVARIANT) {
-//                        return wildcard.lowerBound().anyMatch(Utils.isAssignableLambdaExpected(this, variance));
-//                    }
-//                    throw new IllegalArgumentException();
-//                } else if (actual instanceof RawType rawType) {
-//                    return compareClass(rawType.type(), variance);
-//                } else if (actual instanceof ArrayType) {
-//                    return false;
-//                } else if (actual instanceof InnerClassType innerClassType) {
-//                    return isAssignable(innerClassType.innerType(), variance);
-//                } else if (actual instanceof ParameterizedType parameterizedType) {
-//                    return compareClass(parameterizedType.rawType(), variance);
-//                }
-//                throw new IllegalArgumentException();
-//            }
-//
-//            private boolean compareClass(Class<?> clazz, Variance variance) {
-//                if (variance == Variance.INVARIANT) {
-//                    throw new AssertionError("Should not reach here");
-//                } else if (variance == Variance.COVARIANT) {
-//                    return type.isAssignableFrom(clazz);
-//                } else if (variance == Variance.CONTRAVARIANT) {
-//                    return clazz.isAssignableFrom(type);
-//                }
-//                throw new IllegalArgumentException();
-//            }
-//
-//            @Override
-//            public Class<?> type() {
-//                return type;
-//            }
-//
-//            @Override
-//            public String toString() {
-//                return Arg.toString(this);
-//            }
-//
-//        };
-//    }
 
 }

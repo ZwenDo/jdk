@@ -109,7 +109,7 @@ public final class TransParameterizedTypes {
 
         public final Symbol.MethodSymbol extractFromClassMethod = new Symbol.MethodSymbol(
                 PUBLIC,
-                names.fromString("$typeArgument"),
+                names.fromString("typeArgument"),
                 new Type.MethodType(
                         List.of(syms.intType),
                         syms.specializedTypeDescriptorType,
@@ -133,7 +133,7 @@ public final class TransParameterizedTypes {
 
         public final Symbol.MethodSymbol extractFromMethodMethod = new Symbol.MethodSymbol(
                 PUBLIC,
-                names.fromString("$typeArgument"),
+                names.fromString("typeArgument"),
                 new Type.MethodType(
                         List.of(syms.intType),
                         syms.specializedTypeDescriptorType,
@@ -155,10 +155,15 @@ public final class TransParameterizedTypes {
                 syms.classType.tsym
         );
 
-        public final Symbol.MethodSymbol arrayTypeConstructor = new Symbol.MethodSymbol(
-                PUBLIC,
-                names.init,
-                new Type.MethodType(List.of(syms.specializedTypeDescriptorType), syms.voidType, List.nil(), syms.methodClass),
+        public final Symbol.MethodSymbol arrayTypeFactory = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("of"),
+                new Type.MethodType(
+                        List.of(syms.specializedTypeDescriptorType),
+                        syms.specializedTypeDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
                 syms.arrayDescriptorType.tsym
         );
 
@@ -306,16 +311,16 @@ public final class TransParameterizedTypes {
                 syms.optionalType.tsym
         );
 
-        public final Symbol.MethodSymbol optionalOfNullableMethod = new Symbol.MethodSymbol(
+        public final Symbol.MethodSymbol filterErasedTypeMethod = new Symbol.MethodSymbol(
                 PUBLIC | STATIC,
-                names.fromString("ofNullable"),
+                names.fromString("filterErasedType"),
                 new Type.MethodType(
-                        List.of(syms.objectType),
+                        List.of(syms.specializedTypeDescriptorType),
                         syms.optionalType,
                         List.nil(),
                         syms.methodClass
                 ),
-                syms.optionalType.tsym
+                syms.specializedTypeUtilsType.tsym
         );
 
         public final Symbol.OperatorSymbol objectEqOperator = operators
@@ -1268,9 +1273,9 @@ public final class TransParameterizedTypes {
                         throw new AssertionError();
                     }
                     var args = generatedArgs.get().head;
-                    var optWrap = staticMethodInvocation(constantHolder.optionalOfNullableMethod);
-                    optWrap.args = List.of(args);
-                    result = optWrap;
+                    var filter = staticMethodInvocation(constantHolder.filterErasedTypeMethod);
+                    filter.args = List.of(args);
+                    result = filter;
                 }
                 case "from" -> {
                     var argSym = (Symbol.ClassSymbol) tree.args.head.type.tsym;
@@ -1279,9 +1284,9 @@ public final class TransParameterizedTypes {
                         break;
                     }
                     var r = argLiteralGenerator.generateArgs(tree.args.head.type, ArgLiteralGenerator.Mode.DEFAULT);
-                    var optWrap = staticMethodInvocation(constantHolder.optionalOfNullableMethod);
-                    optWrap.args = List.of(r);
-                    result = optWrap;
+                    var filter = staticMethodInvocation(constantHolder.filterErasedTypeMethod);
+                    filter.args = List.of(r);
+                    result = filter;
                 }
             }
         }
@@ -1318,7 +1323,7 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression generateArrayKind(Type.ArrayType type) {
-            var call = constructorInvocation(constantHolder.arrayTypeConstructor);
+            var call = staticMethodInvocation(constantHolder.arrayTypeFactory);
             call.args = List.of(actualGenerateArgs(type.elemtype));
             return call;
         }
