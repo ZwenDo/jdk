@@ -1,5 +1,7 @@
 package java.util.ptype.util;
 
+import java.util.NoSuchElementException;
+
 /// HashSet.
 /// @param <E> the type of elements maintained by this set
 public final class HashSet<E> {
@@ -8,6 +10,8 @@ public final class HashSet<E> {
     private Node<E>[] content = (Node<E>[]) new Node[64];
 
     private int size;
+
+    private int modCount;
 
     /// Creates a new, empty set.
     public HashSet() {
@@ -22,6 +26,7 @@ public final class HashSet<E> {
         Utils.requireNonNull(element);
         if (content.length <= size * 2) {
             resize();
+            modCount++;
         }
 
         var hash = element.hashCode() & (content.length - 1);
@@ -30,6 +35,7 @@ public final class HashSet<E> {
         if (bucket == null) {
             content[hash] = new Node<>(element);
             size++;
+            modCount++;
             return null;
         }
 
@@ -41,10 +47,63 @@ public final class HashSet<E> {
             if (current.next == null) {
                 current.next = new Node<>(element);
                 size++;
+                modCount++;
                 return null;
             }
             current = current.next;
         }
+    }
+
+    /// Returns the number of elements in the set.
+    ///
+    /// @return the number of elements in the set
+    public int size() {
+        return size;
+    }
+
+    /// Returns an iterator over the elements in the set. The elements are returned in no particular order.
+    ///
+    /// @return an iterator over the elements in the set
+    public Iterator<E> iterator() {
+        return new Iterator<>() {
+            private final int expectedModCount = modCount;
+            private int index;
+            private Node<E> current = null;
+
+            {
+                advance();
+            }
+
+            @Override
+            public boolean hasNext() {
+                return current != null;
+            }
+
+            @Override
+            public E next() {
+                if (!hasNext()) throw new NoSuchElementException("no more elements");
+                var value = current.value;
+                advance();
+                return value;
+            }
+
+            private void advance() {
+                if (expectedModCount != modCount) {
+                    throw new IllegalStateException("concurrent modification");
+                }
+                if (current != null && current.next != null) {
+                    current = current.next;
+                    return;
+                }
+                while (index < content.length) {
+                    var bucket = content[index++];
+                    if (bucket != null) {
+                        current = bucket;
+                        return;
+                    }
+                }
+            }
+        };
     }
 
     private void resize() {

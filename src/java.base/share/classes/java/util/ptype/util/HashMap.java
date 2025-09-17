@@ -2,6 +2,9 @@ package java.util.ptype.util;
 
 import jdk.internal.vm.annotation.Stable;
 
+import java.util.ptype.ClassDescriptor;
+import java.util.ptype.SuperTypeMapping;
+
 /// Immutable hashmap implementation.
 ///
 /// @param <K> the type of the keys
@@ -29,30 +32,47 @@ public final class HashMap<K,V>  {
 
         for (int i = 0; i < input.length; i += 2) {
             @SuppressWarnings("unchecked")
-            K k = Utils.requireNonNull((K)input[i]);
+            var k = Utils.requireNonNull((K) input[i]);
             @SuppressWarnings("unchecked")
-            V v = Utils.requireNonNull((V)input[i+1]);
+            var v = Utils.requireNonNull((V) input[i + 1]);
             int idx = probe(k);
             if (idx >= 0) {
                 throw new IllegalArgumentException("duplicate key: " + k);
             } else {
                 int dest = -(idx + 1);
                 table[dest] = k;
-                table[dest+1] = v;
+                table[dest + 1] = v;
             }
         }
     }
 
-    @Override
-    public int hashCode() {
-        int hash = 0;
-        for (int i = 0; i < table.length; i += 2) {
-            Object k = table[i];
-            if (k != null) {
-                hash += k.hashCode() ^ table[i + 1].hashCode();
+    private HashMap(int size, Object[] table) {
+        this.size = size;
+        this.table = table;
+    }
+
+    /// Creates a new hashmap from the given super type mappings.
+    ///
+    /// @param input the super type mappings
+    /// @return the created hashmap
+    public static HashMap<Class<?>, ClassDescriptor> superTypeMap(HashSet<SuperTypeMapping> input) {
+        int len = 4 * input.size();
+        len = (len + 1) & ~1; // ensure table is even length
+        var table = new Object[len];
+
+        for (var it = input.iterator(); it.hasNext();) {
+            var mapping = it.next();
+            int idx = probeStatic(mapping.superType(), table);
+            if (idx >= 0) {
+                throw new IllegalArgumentException("duplicate key: " + mapping.superType());
+            } else {
+                int dest = -(idx + 1);
+                table[dest] = mapping.superType();
+                table[dest + 1] = mapping.superTypeDescriptor();
             }
         }
-        return hash;
+
+        return new HashMap<>(input.size(), table);
     }
 
     /// Gets the value associated to a given key
@@ -81,6 +101,10 @@ public final class HashMap<K,V>  {
     }
 
     private int probe(Object pk) {
+        return probeStatic(pk, table);
+    }
+
+    private static <K> int probeStatic(Object pk, Object[] table) {
         int idx = Math.floorMod(pk.hashCode(), table.length >> 1) << 1;
         while (true) {
             @SuppressWarnings("unchecked")
