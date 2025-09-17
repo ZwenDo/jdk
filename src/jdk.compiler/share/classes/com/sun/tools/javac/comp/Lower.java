@@ -2965,7 +2965,12 @@ public class Lower extends TreeTranslator {
         boolean isEnum = (tree.constructor.owner.flags() & ENUM) != 0;
         List<Type> argTypes = tree.constructor.type.getParameterTypes();
         if (isEnum) argTypes = argTypes.prepend(syms.intType).prepend(syms.stringType);
-        tree.args = boxArgs(argTypes, tree.args, tree.varargsElement);
+        try {
+            tree.args = boxArgs(argTypes, tree.args, tree.varargsElement);
+        } catch (Throwable e) {
+            System.out.println(tree);
+            throw e;
+        }
         tree.varargsElement = null;
 
         // If created class is local, add free variables after

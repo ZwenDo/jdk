@@ -2,6 +2,8 @@ package com.sun.tools.javac.comp;
 
 import com.sun.tools.javac.code.*;
 import com.sun.tools.javac.jvm.ByteCodes;
+import com.sun.tools.javac.jvm.JNIWriter;
+import com.sun.tools.javac.jvm.PoolConstant;
 import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeInfo;
 import com.sun.tools.javac.tree.TreeMaker;
@@ -40,6 +42,7 @@ public final class TransParameterizedTypes {
     private final Translator translator;
     private final Types types;
     private final Operators operators;
+    private final LambdaToMethod lambdaToMethod;
 
     private TreeMaker make;
     private Env<AttrContext> env;
@@ -79,6 +82,8 @@ public final class TransParameterizedTypes {
 
     private final class ConstantHolder {
 
+        public final Name dollarDollar = names.fromString("$$");
+
         public final Name methodTypeArgumentsLocalVarName = names.fromString("methodArguments");
 
         public final Name objectTypeArgumentsLocalVarName = names.fromString("objectArguments");
@@ -92,6 +97,8 @@ public final class TransParameterizedTypes {
         public final Name constructorTypeArgumentsLocalVarName = names.fromString("constructorArgument");
 
         public final Name letExprLocalVarName = names.fromString("result");
+
+        public final Name constantDescriptorName = names.fromString("constantDescriptor");
 
         public final Symbol.MethodSymbol methodTypeArgumentsAccessMethod = new Symbol.MethodSymbol(
                 PUBLIC | STATIC,
@@ -263,7 +270,7 @@ public final class TransParameterizedTypes {
                         List.nil(),
                         syms.methodClass
                 ),
-                syms.specializedTypeHashMap.tsym
+                syms.specializedTypeHashMapType.tsym
         );
 
         public final Symbol.MethodSymbol findClassByNameMethod = new Symbol.MethodSymbol(
@@ -291,8 +298,8 @@ public final class TransParameterizedTypes {
         );
 
         public final Type computeSuperMapType = types.subst(
-                syms.specializedTypeHashMap,
-                syms.specializedTypeHashMap.getTypeArguments(),
+                syms.specializedTypeHashMapType,
+                syms.specializedTypeHashMapType.getTypeArguments(),
                 List.of(
                         types.subst(syms.classType, syms.classType.getTypeArguments(), List.of(new Type.WildcardType(syms.objectType, BoundKind.UNBOUND, syms.boundClass))),
                         syms.specializedTypeDescriptorType
@@ -323,6 +330,111 @@ public final class TransParameterizedTypes {
                 syms.specializedTypeUtilsType.tsym
         );
 
+        public final Symbol.MethodSymbol constantClassDescriptorBootstrapMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("constantClassDescriptor"),
+                new Type.MethodType(
+                        List.of(
+                                syms.methodHandleLookupType,
+                                syms.stringType,
+                                syms.classType,
+                                syms.objectType,
+                                syms.stringType,
+                                types.makeArrayType(syms.objectType)
+                        ),
+                        syms.specializedTypeDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.constantSpecializedTypesType.tsym
+        );
+
+        public final Symbol.MethodSymbol noOuterConstantClassDescriptorBootstrapMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("constantClassDescriptor"),
+                new Type.MethodType(
+                        List.of(
+                                syms.methodHandleLookupType,
+                                syms.stringType,
+                                syms.classType,
+                                syms.stringType,
+                                types.makeArrayType(syms.objectType)
+                        ),
+                        syms.specializedTypeDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.constantSpecializedTypesType.tsym
+        );
+
+        public final Symbol.MethodSymbol rawTypeDescriptorBootstrapMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("rawTypeDescriptor"),
+                new Type.MethodType(
+                        List.of(
+                                syms.methodHandleLookupType,
+                                syms.stringType,
+                                syms.classType,
+                                syms.objectType,
+                                syms.classType
+                        ),
+                        syms.specializedTypeDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.constantSpecializedTypesType.tsym
+        );
+
+        public final Symbol.MethodSymbol noOuterRawTypeDescriptorBootstrapMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("rawTypeDescriptor"),
+                new Type.MethodType(
+                        List.of(
+                                syms.methodHandleLookupType,
+                                syms.stringType,
+                                syms.classType,
+                                syms.classType
+                        ),
+                        syms.specializedTypeDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.constantSpecializedTypesType.tsym
+        );
+
+        public final Symbol.MethodSymbol constantArrayDescriptorBootstrapMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("constantArrayTypeDescriptor"),
+                new Type.MethodType(
+                        List.of(
+                                syms.methodHandleLookupType,
+                                syms.stringType,
+                                syms.classType,
+                                syms.objectType
+                        ),
+                        syms.specializedTypeDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.constantSpecializedTypesType.tsym
+        );
+
+        public final Symbol.MethodSymbol erasedTypeDescriptorBoostrapMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("erasedTypeDescriptor"),
+                new Type.MethodType(
+                        List.of(
+                                syms.methodHandleLookupType,
+                                syms.stringType,
+                                syms.classType
+                        ),
+                        syms.specializedTypeDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.constantSpecializedTypesType.tsym
+        );
+
         public final Symbol.OperatorSymbol objectEqOperator = operators
                 .lookupBinaryOp(o -> o.opcode == ByteCodes.if_acmpeq);
 
@@ -340,12 +452,12 @@ public final class TransParameterizedTypes {
         resolve = Resolve.instance(context);
         types = Types.instance(context);
         operators = Operators.instance(context);
+        lambdaToMethod = LambdaToMethod.instance(context);
         typeParameterScopes = new ParameterizedScope();
         argLiteralGenerator = new ArgLiteralGenerator();
         var options = Options.instance(context);
         enabled = options.isSet("enableSpecialization");
         enableSynthetic = !options.isSet("showGeneratedCode");
-
     }
 
     /**
@@ -1117,7 +1229,7 @@ public final class TransParameterizedTypes {
 
         private JCTree.JCExpression pushConstructorCode(List<Type> types, Symbol.MethodSymbol sym, Symbol.VarSymbol enclVariable) {
             var enclosingType = sym.owner.type.getEnclosingType();
-            var enclosingDescriptor = nullLiteral();
+            JCTree.JCExpression enclosingDescriptor = null;
             if (enclosingType != null && !Type.noType.equals(enclosingType)) {
                 // if the enclosing is parameterized, it will have a field that we can extract
                 if (enclosingType.isParameterized()) {
@@ -1147,14 +1259,22 @@ public final class TransParameterizedTypes {
                     current -> argLiteralGenerator.generateArgs(current, ArgLiteralGenerator.Mode.DEFAULT)
             );
 
-            var call = constructorInvocation(constantHolder.classDescriptorConstructor);
-            call.args = args
-                    .prepend(make.Literal(isRaw))
-                    .prepend(make.ClassLiteral(sym.owner.type))
-                    .prepend(enclosingDescriptor);
+            JCTree.JCExpression pushedValue;
+            if (enclosingDescriptor == null && constantList(args)) {
+                pushedValue = argLiteralGenerator.constantClassDescriptor(null, (Type.ClassType) sym.owner.type, isRaw, args);
+            } else {
+                enclosingDescriptor = nullLiteral();
+                var call = constructorInvocation(constantHolder.classDescriptorConstructor);
+                call.args = args
+                        .prepend(make.Literal(isRaw))
+                        .prepend(make.ClassLiteral(sym.owner.type))
+                        .prepend(enclosingDescriptor);
+                pushedValue = call;
+            }
+
 
             var push = staticMethodInvocation(constantHolder.pushConstructor);
-            push.args = List.of(call);
+            push.args = List.of(pushedValue);
             return push;
         }
 
@@ -1323,21 +1443,50 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression generateArrayKind(Type.ArrayType type) {
+            var component = actualGenerateArgs(type.elemtype);
+            if (component.hasTag(JCTree.Tag.IDENT)) {
+                var ident = (JCTree.JCIdent) component;
+                var componentCondy = (Symbol.DynamicVarSymbol) ident.sym;
+                var args = new PoolConstant.LoadableConstant[]{
+                        componentCondy,
+                };
+                var condy = new Symbol.DynamicVarSymbol(
+                        ident.name.append(names.fromString("$array$")),
+                        syms.noSymbol,
+                        constantHolder.constantArrayDescriptorBootstrapMethod.asHandle(),
+                        syms.arrayDescriptorType,
+                        args
+                );
+                return make.Ident(condy);
+            }
             var call = staticMethodInvocation(constantHolder.arrayTypeFactory);
-            call.args = List.of(actualGenerateArgs(type.elemtype));
+            call.args = List.of(component);
             return call;
         }
 
         private JCTree.JCExpression generateWildcardKind(Type.WildcardType type) {
-            return staticMethodInvocation(constantHolder.erasedTypeInstanceMethod);
+            return make.Ident(erasedConstant());
         }
 
         private JCTree.JCExpression generateIntersectionKind(Type.IntersectionClassType type) {
-            return staticMethodInvocation(constantHolder.erasedTypeInstanceMethod);
+            return make.Ident(erasedConstant());
         }
 
         private JCTree.JCExpression generateClassKind(Type.ClassType type) {
-            var outerConstruction = generateOuterClass(type);
+            var outerType = generateOuterClass(type);
+            var constantOuter = outerType == null || outerType.hasTag(JCTree.Tag.IDENT);
+
+            List<JCTree.JCExpression> typeArguments = List.nil();
+            if (type.getTypeArguments().nonEmpty()) { // Foo<E> (E can be a wildcard)
+                typeArguments = type.getTypeArguments().map(this::actualGenerateArgs);
+            }
+            var constantArguments = constantList(typeArguments);
+
+            if (constantOuter && constantArguments) {
+                return constantClassDescriptor(outerType, type, type.isRaw(), typeArguments);
+            } else {
+                outerType = outerType == null ? nullLiteral() : outerType;
+            }
 
             var tsym = (Symbol.ClassSymbol) type.tsym;
             var isAccessible = isAccessible(tsym);
@@ -1345,17 +1494,11 @@ public final class TransParameterizedTypes {
 
             var call = constructorInvocation(constantHolder.classDescriptorConstructor);
 
-            List<JCTree.JCExpression> typeArguments = List.nil();
-
-            if (type.getTypeArguments().nonEmpty()) { // Foo<E> (E can be a wildcard)
-                typeArguments = type.getTypeArguments().map(this::actualGenerateArgs);
-            }
-
             // for raw and non parameterized classes typeArguments keeps the empty list value
             call.args = typeArguments
                     .prepend(make.Literal(type.isRaw()))
                     .prepend(classFieldAcc)
-                    .prepend(outerConstruction);
+                    .prepend(outerType);
             return call;
         }
 
@@ -1382,16 +1525,27 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression generatePrimitiveType(Type.JCPrimitiveType type) {
-            var classFieldAcc = make.ClassLiteral(type);
-            var call = constructorInvocation(constantHolder.classDescriptorConstructor);
-            call.args = List.of(nullLiteral(), classFieldAcc, make.Literal(false));
-            return call;
+//            var classFieldAcc = make.ClassLiteral(type);
+//            var call = constructorInvocation(constantHolder.classDescriptorConstructor);
+//            call.args = List.of(nullLiteral(), classFieldAcc, make.Literal(false));
+//            return call;
+            var args = new PoolConstant.LoadableConstant[]{
+                    PoolConstant.LoadableConstant.String(primitiveDescriptor(type)),
+            };
+            var condy = new Symbol.DynamicVarSymbol(
+                    names.fromString(type.toString()),
+                    syms.noSymbol,
+                    constantHolder.noOuterConstantClassDescriptorBootstrapMethod.asHandle(),
+                    syms.classDescriptorType,
+                    args
+            );
+            return make.Ident(condy);
         }
 
         private JCTree.JCExpression generateOuterClass(Type current) {
             var enclosingType = current.getEnclosingType();
             // if there is no enclosing type, we have nothing to do
-            if (enclosingType == null || Type.noType.equals(enclosingType)) return nullLiteral();
+            if (enclosingType == null || Type.noType.equals(enclosingType)) return null;
 
             // if we are in an inner class, we also need to generate the args for the enclosing type
             return actualGenerateArgs(enclosingType);
@@ -1431,6 +1585,83 @@ public final class TransParameterizedTypes {
 //        return getInnerArgCall;
         }
 
+        private String primitiveDescriptor(Type.JCPrimitiveType type) {
+            return switch (type.getTag()) {
+                case BOOLEAN -> "Z";
+                case BYTE -> "B";
+                case SHORT -> "S";
+                case INT -> "I";
+                case LONG -> "J";
+                case CHAR -> "C";
+                case FLOAT -> "F";
+                case DOUBLE -> "D";
+                default -> throw new AssertionError(type);
+            };
+        }
+
+        private JCTree.JCExpression constantClassDescriptor(JCTree.JCExpression outer, Type.ClassType type, boolean isRaw, List<JCTree.JCExpression> arguments) {
+            Name name;
+            Symbol.DynamicVarSymbol outerCondy = null;
+            if (outer != null) {
+                var ident = (JCTree.JCIdent) outer;
+                name = ident.name.append(names.fromString("$_$")).append(type.tsym.getSimpleName());
+                outerCondy = (Symbol.DynamicVarSymbol) ident.sym;
+            } else {
+                name = type.tsym.getSimpleName();
+            }
+            if (!isRaw && arguments.nonEmpty()) {
+                name = name.append(names.fromString("$xo$")).append(((JCTree.JCIdent) arguments.head).name);
+                var list = arguments.tail;
+                for (var argument : list) {
+                    var argIdent = (JCTree.JCIdent) argument;
+                    name = name.append(constantHolder.dollarDollar).append(argIdent.name);
+                }
+                name = name.append(names.fromString("$xc$"));
+            }
+
+            Symbol.MethodSymbol meth;
+            if (isRaw) {
+                meth = outer != null
+                        ? constantHolder.rawTypeDescriptorBootstrapMethod
+                        : constantHolder.noOuterRawTypeDescriptorBootstrapMethod;
+            } else {
+                meth = outer != null
+                        ? constantHolder.constantClassDescriptorBootstrapMethod
+                        : constantHolder.noOuterConstantClassDescriptorBootstrapMethod;
+            }
+
+            var arraySize = arguments.size() + 1;
+            if (outer != null) {
+                arraySize++;
+            }
+
+            var args = new PoolConstant.LoadableConstant[arraySize];
+            var index = 0;
+
+            if (outerCondy != null) {
+                args[index++] = outerCondy;
+            }
+
+            args[index++] = isRaw
+                    ? type
+                    : PoolConstant.LoadableConstant.String(typeToDescriptor(type.tsym.type));
+
+            for (var argument : arguments) {
+                var ident = (JCTree.JCIdent) argument;
+                var argCondy = (Symbol.DynamicVarSymbol) ident.sym;
+                args[index++] = argCondy;
+            }
+
+            var condy = new Symbol.DynamicVarSymbol(
+                    name,
+                    syms.noSymbol,
+                    meth.asHandle(),
+                    syms.classDescriptorType,
+                    args
+            );
+
+            return make.Ident(condy);
+        }
 
     }
 
@@ -1826,7 +2057,10 @@ public final class TransParameterizedTypes {
                 statementConsumer.accept(decl);
 
                 // if (args == null) raw version
-                var fallback = fallbackIf(declarationVariable, rawTypeCreation(classContext.classSymbol.type));
+                var fallback = fallbackIf(
+                        declarationVariable,
+                        argLiteralGenerator.generateArgs(types.erasure(classContext.classSymbol.type), ArgLiteralGenerator.Mode.DEFAULT)
+                );
                 statementConsumer.accept(fallback);
             }
 
@@ -1871,7 +2105,7 @@ public final class TransParameterizedTypes {
                 statementConsumer.accept(
                         fallbackIf(
                                 declarationVariable,
-                                rawTypeCreation(classContext.classSymbol.type)
+                                argLiteralGenerator.generateArgs(types.erasure(classContext.classSymbol.type), ArgLiteralGenerator.Mode.DEFAULT)
                         )
                 );
             }
@@ -2012,41 +2246,22 @@ public final class TransParameterizedTypes {
         );
     }
 
-    private JCTree.JCFieldAccess fieldAccess(Symbol.VarSymbol field, JCTree.JCExpression owner) {
-        return make.Select(owner, field);
-    }
-
-    private JCTree.JCExpression rawTypeCreation(Type type) {
-        if (type == null || Type.noType.equals(type)) return nullLiteral();
-
-        var outerConstruction = rawTypeCreation(type.getEnclosingType());
-
-        var tsym = (Symbol.ClassSymbol) type.tsym;
-        var isAccessible = isAccessible(tsym);
-        var classFieldAcc = classArgParam(tsym, isAccessible);
-
-        var typeArguments = erasedList(tsym);
-
-        var call = constructorInvocation(constantHolder.classDescriptorConstructor);
-        call.args = typeArguments
-                .prepend(make.Literal(true))
-                .prepend(classFieldAcc)
-                .prepend(outerConstruction);
-
-        return call;
-    }
-
-    private List<JCTree.JCExpression> erasedList(Symbol sym) {
-        var erasedList = List.<JCTree.JCExpression>nil();
-        for (var current = sym.type.getTypeArguments(); current.nonEmpty(); current = current.tail) {
-            var arg = staticMethodInvocation(constantHolder.erasedTypeInstanceMethod);
-            erasedList = erasedList.prepend(arg);
-        }
-        return erasedList;
+    private Symbol.DynamicVarSymbol erasedConstant() {
+        return new Symbol.DynamicVarSymbol(
+                names.fromString("erased"),
+                syms.noSymbol,
+                constantHolder.erasedTypeDescriptorBoostrapMethod.asHandle(),
+                syms.specializedTypeDescriptorType,
+                new PoolConstant.LoadableConstant[0]
+        );
     }
     //endregion
 
     //region utils
+    private String typeToDescriptor(Type type) {
+        return "()" + lambdaToMethod.typeSig(types.erasure(type));
+    }
+
     private boolean needsCallerInfo(Symbol.MethodSymbol method) {
         return !(method.isStatic() || method.isPrivate() || method.isConstructor());
     }
@@ -2170,6 +2385,14 @@ public final class TransParameterizedTypes {
 
     private int optionalSynthetic() {
         return enableSynthetic ? SYNTHETIC : 0;
+    }
+
+    private boolean constantList(List<JCTree.JCExpression> expressions) {
+        if (expressions.isEmpty()) return true;
+        for (var expr : expressions) {
+            if (!expr.hasTag(JCTree.Tag.IDENT)) return false;
+        }
+        return true;
     }
     //endregion
 

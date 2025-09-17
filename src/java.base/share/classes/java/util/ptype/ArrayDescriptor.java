@@ -63,4 +63,16 @@ public final class ArrayDescriptor implements SpecializedTypeDescriptor {
         return javaType;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof ArrayDescriptor that)) return false;
+
+        return componentType.equals(that.componentType);
+    }
+
+    @Override
+    public int hashCode() {
+        return componentType.hashCode();
+    }
+
 }

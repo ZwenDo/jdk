@@ -130,6 +130,20 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         return SpecializedTypeUtils.stringify(this);
     }
 
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof ClassDescriptor that)) return false;
+        return type.equals(that.type) && Objects.equals(typeArguments, that.typeArguments) && Objects.equals(outer, that.outer);
+    }
+
+    @Override
+    public int hashCode() {
+        var hash = 1;
+        hash = 31 * hash + type.hashCode();
+        hash = 31 * hash + (outer != null ? outer.hashCode() : 0);
+        hash = 31 * hash + (typeArguments != null ? typeArguments.hashCode() : 0);
+        return hash;
+    }
 
     boolean isRaw() {
         return (flags & IS_RAW) != 0;

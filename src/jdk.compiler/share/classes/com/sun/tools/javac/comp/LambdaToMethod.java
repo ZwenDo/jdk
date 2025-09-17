@@ -1268,7 +1268,7 @@ public class LambdaToMethod extends TreeTranslator {
      * ****************************************************************
      */
 
-    private String typeSig(Type type) {
+    public String typeSig(Type type) {
         return typeSig(type, false);
     }
 

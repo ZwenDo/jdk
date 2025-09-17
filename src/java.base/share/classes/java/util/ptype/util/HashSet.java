@@ -1,13 +1,24 @@
 package java.util.ptype.util;
 
-final class HashSet<E> {
+/// HashSet.
+/// @param <E> the type of elements maintained by this set
+public final class HashSet<E> {
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private Node<E>[] content = (Node<E>[]) new Node[64];
 
     private int size;
 
-    public boolean add(E element) {
+    /// Creates a new, empty set.
+    public HashSet() {
+    }
+
+    /// Adds an element to the set if it is not already present. If the element is already present, the existing element
+    /// is returned.
+    ///
+    /// @param element the element to add
+    /// @return the existing element if it was already present, otherwise null
+    public E add(E element) {
         Utils.requireNonNull(element);
         if (content.length <= size * 2) {
             resize();
@@ -19,18 +30,18 @@ final class HashSet<E> {
         if (bucket == null) {
             content[hash] = new Node<>(element);
             size++;
-            return true;
+            return null;
         }
 
         var current = bucket;
         while (true) {
             if (element.equals(current.value)) {
-                return false;
+                return current.value;
             }
             if (current.next == null) {
                 current.next = new Node<>(element);
                 size++;
-                return true;
+                return null;
             }
             current = current.next;
         }

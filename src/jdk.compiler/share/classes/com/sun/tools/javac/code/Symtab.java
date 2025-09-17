@@ -222,10 +222,11 @@ public class Symtab {
     public final Type arrayDescriptorType;
     public final Type specializedTypeUtilsType;
     public final Type specializedTypePassingHandleType;
-    public final Type specializedTypeHashMap;
+    public final Type specializedTypeHashMapType;
     public final Type stackWalkerType;
     public final Type compilerIntrinsicType;
     public final Type optionalType;
+    public final Type constantSpecializedTypesType;
 
     public final Type stringConcatFactory;
     public final Type repeatableType;
@@ -629,10 +630,11 @@ public class Symtab {
         arrayDescriptorType = enterClass("java.util.ptype.ArrayDescriptor");
         specializedTypeUtilsType = enterClass("java.util.ptype.SpecializedTypeUtils");
         specializedTypePassingHandleType = enterClass("java.util.ptype.SpecializedTypePassingHandler");
-        specializedTypeHashMap = enterClass("java.util.ptype.util.HashMap");
+        specializedTypeHashMapType = enterClass("java.util.ptype.util.HashMap");
         stackWalkerType = enterClass("java.lang.StackWalker");
         compilerIntrinsicType = enterClass("java.lang.annotation.CompilerIntrinsic");
         optionalType = enterClass("java.util.Optional");
+        constantSpecializedTypesType = enterClass("java.util.ptype.ConstantSpecializedTypes");
 
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");
@@ -678,8 +680,9 @@ public class Symtab {
         synthesizeEmptyInterfaceIfMissing(specializedTypePassingHandleType);
         synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsType);
         synthesizeEmptyInterfaceIfMissing(stackWalkerType);
-        synthesizeEmptyInterfaceIfMissing(specializedTypeHashMap);
+        synthesizeEmptyInterfaceIfMissing(specializedTypeHashMapType);
         synthesizeEmptyInterfaceIfMissing(compilerIntrinsicType);
+        synthesizeEmptyInterfaceIfMissing(constantSpecializedTypesType);
 
         // Enter a synthetic class that is used to mark internal
         // proprietary classes in ct.sym.  This class does not have a
