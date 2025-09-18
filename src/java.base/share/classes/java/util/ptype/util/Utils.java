@@ -15,19 +15,6 @@ public final class Utils {
         return o;
     }
 
-    /// Finds a class from its binary name.
-    ///
-    /// @param name the binary name of the class
-    /// @return the corresponding clas
-    public static Class<?> findClassByName(String name) {
-        Utils.requireNonNull(name);
-        try {
-            return Class.forName(name, false, ClassLoader.getSystemClassLoader());
-        } catch (ClassNotFoundException e) {
-            throw new AssertionError("Could not load " + name);
-        }
-    }
-
     private Utils() {
         throw new AssertionError();
     }

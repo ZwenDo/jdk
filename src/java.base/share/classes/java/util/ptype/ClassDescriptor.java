@@ -8,7 +8,6 @@ import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.ptype.util.ArrayList;
 import java.util.ptype.util.HashMap;
 import java.util.ptype.util.Utils;
 
@@ -22,7 +21,7 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     private final Class<?> type;
 
     @Stable
-    private final ArrayList<SpecializedTypeDescriptor> typeArguments;
+    private final SpecializedTypeDescriptor[] typeArguments;
 
     /// We always set the highest bit for stable
     ///
@@ -40,32 +39,144 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     /// Creates a new [ClassDescriptor].
     ///
     /// @param outer the outer class
-    /// @param type the type
-    /// @param isRaw whether the type is a raw type
+    /// @param type  the type
+    /// @param isRaw whether the type is raw or a regular class
+    public ClassDescriptor(
+            ClassDescriptor outer,
+            Class<?> type,
+            boolean isRaw
+    ) {
+        Utils.requireNonNull(type);
+        var flags = DEFAULT;
+        if (isRaw) flags |= IS_RAW;
+        if (outer != null) {
+            flags |= HAS_OUTER;
+            if (outer.partiallyRaw()) flags |= PARTIALLY_RAW;
+        }
+        this.typeArguments = EMPTY_ARRAY;
+        this.outer = outer;
+        this.type = type;
+        this.flags = flags;
+    }
+
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param outer         the outer class
+    /// @param type          the type
     /// @param typeArguments the type arguments
     public ClassDescriptor(
             ClassDescriptor outer,
             Class<?> type,
-            boolean isRaw,
             SpecializedTypeDescriptor... typeArguments
     ) {
         Utils.requireNonNull(type);
         Utils.requireNonNull(typeArguments);
         var flags = DEFAULT;
         if (outer != null) flags |= HAS_OUTER;
-        ArrayList<SpecializedTypeDescriptor> typeArgs = null;
-        if (isRaw) {
-            if (typeArguments.length != 0) throw new IllegalArgumentException("No type arguments should be present for raw " + type.getSimpleName() + ", but " + Arrays.toString(typeArguments) + " were present.");
-            flags |= IS_RAW;
-        } else {
-            typeArgs = ArrayList.of(typeArguments);
-            if (partiallyRawArray(typeArguments)) flags |= PARTIALLY_RAW;
+        var array = new SpecializedTypeDescriptor[typeArguments.length];
+        System.arraycopy(typeArguments, 0, array, 0, typeArguments.length);
+        this.typeArguments = array;
+        if ((outer != null && outer.partiallyRaw()) || partiallyRawArray(typeArguments)) {
+            flags |= PARTIALLY_RAW;
         }
         this.outer = outer;
         this.type = type;
-        this.typeArguments = typeArgs;
         this.flags = flags;
     }
+
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param outer the outer class
+    /// @param type  the type
+    /// @param arg1  the first type argument
+    public ClassDescriptor(
+            ClassDescriptor outer,
+            Class<?> type,
+            SpecializedTypeDescriptor arg1
+    ) {
+        Utils.requireNonNull(type);
+        Utils.requireNonNull(arg1);
+        var flags = DEFAULT;
+        if (outer != null) flags |= HAS_OUTER;
+
+        this.typeArguments = new SpecializedTypeDescriptor[]{arg1};
+        if ((outer != null && outer.partiallyRaw()) || SpecializedTypeUtils.partiallyRaw(arg1)) {
+            flags |= PARTIALLY_RAW;
+        }
+
+        this.outer = outer;
+        this.type = type;
+        this.flags = flags;
+    }
+
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param outer the outer class
+    /// @param type  the type
+    /// @param arg1  the first type argument
+    /// @param arg2  the second type argument
+    public ClassDescriptor(
+            ClassDescriptor outer,
+            Class<?> type,
+            SpecializedTypeDescriptor arg1,
+            SpecializedTypeDescriptor arg2
+    ) {
+        Utils.requireNonNull(type);
+        Utils.requireNonNull(arg1);
+        Utils.requireNonNull(arg2);
+        var flags = DEFAULT;
+        if (outer != null) flags |= HAS_OUTER;
+
+        this.typeArguments = new SpecializedTypeDescriptor[]{arg1, arg2};
+        if (
+                (outer != null && outer.partiallyRaw())
+                        || SpecializedTypeUtils.partiallyRaw(arg1)
+                        || SpecializedTypeUtils.partiallyRaw(arg2)
+        ) {
+            flags |= PARTIALLY_RAW;
+        }
+
+        this.outer = outer;
+        this.type = type;
+        this.flags = flags;
+    }
+
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param outer the outer class
+    /// @param type  the type
+    /// @param arg1  the first type argument
+    /// @param arg2  the second type argument
+    /// @param arg3  the third type argument
+    public ClassDescriptor(
+            ClassDescriptor outer,
+            Class<?> type,
+            SpecializedTypeDescriptor arg1,
+            SpecializedTypeDescriptor arg2,
+            SpecializedTypeDescriptor arg3
+    ) {
+        Utils.requireNonNull(type);
+        Utils.requireNonNull(arg1);
+        Utils.requireNonNull(arg2);
+        Utils.requireNonNull(arg3);
+        var flags = DEFAULT;
+        if (outer != null) flags |= HAS_OUTER;
+
+        this.typeArguments = new SpecializedTypeDescriptor[]{arg1, arg2, arg3};
+        if (
+                (outer != null && outer.partiallyRaw())
+                        || SpecializedTypeUtils.partiallyRaw(arg1)
+                        || SpecializedTypeUtils.partiallyRaw(arg2)
+                        || SpecializedTypeUtils.partiallyRaw(arg3)
+        ) {
+            flags |= PARTIALLY_RAW;
+        }
+
+        this.outer = outer;
+        this.type = type;
+        this.flags = flags;
+    }
+
 
     /// Gets the outer type if it exists.
     ///
@@ -86,7 +197,14 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     /// @param index the index
     /// @return the type argument
     public SpecializedTypeDescriptor typeArgument(int index) {
-        return isRaw() ? ErasedType.instance() : typeArguments.get(index);
+        Objects.checkIndex(index, typeArguments.length);
+        if (isRaw()) {
+            return ErasedType.instance();
+        }
+        if (!hasTypeArguments()) {
+            throw new IllegalArgumentException("Type " + type + " is not parameterized.");
+        }
+        return typeArguments[index];
     }
 
     /// Sees the current descriptor as one of its super type.
@@ -111,14 +229,14 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         var outer = hasOuter() ? this.outer.asType() : null;
 
         // basic class
-        if ((outer == null || outer instanceof Class<?>) && typeArguments.isEmpty()) {
+        if ((outer == null || outer instanceof Class<?>) && typeArguments.length == 0) {
             javaType = type;
             return javaType;
         }
 
-        var arguments = new Type[typeArguments.size()];
-        for (var i = 0; i < typeArguments.size(); i++) {
-            arguments[i] = typeArguments.get(i).asType();
+        var arguments = new Type[typeArguments.length];
+        for (var i = 0; i < typeArguments.length; i++) {
+            arguments[i] = typeArguments[i].asType();
         }
 
         javaType = ParameterizedTypeImpl.make(type, arguments, outer);
@@ -133,7 +251,7 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof ClassDescriptor that)) return false;
-        return type.equals(that.type) && Objects.equals(typeArguments, that.typeArguments) && Objects.equals(outer, that.outer);
+        return type.equals(that.type) && Arrays.equals(typeArguments, that.typeArguments) && Objects.equals(outer, that.outer);
     }
 
     @Override
@@ -141,7 +259,7 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         var hash = 1;
         hash = 31 * hash + type.hashCode();
         hash = 31 * hash + (outer != null ? outer.hashCode() : 0);
-        hash = 31 * hash + (typeArguments != null ? typeArguments.hashCode() : 0);
+        hash = 31 * hash + Arrays.hashCode(typeArguments);
         return hash;
     }
 
@@ -150,17 +268,22 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     }
 
     boolean partiallyRaw() {
-        return (flags & PARTIALLY_RAW) != 0;
+        return (flags & (PARTIALLY_RAW | IS_RAW)) != 0;
     }
 
-    ArrayList<SpecializedTypeDescriptor> typeArguments() {
-        return typeArguments;
+    boolean hasTypeArguments() {
+        return !(isRaw() || typeArguments.length == 0);
     }
+
     /// Gets the outer type if it exists.
     ///
     /// @return the outer type
     public ClassDescriptor $outer() {
         return hasOuter() ? outer : null;
+    }
+
+    void joinArguments(StringBuilder builder) {
+        SpecializedTypeUtils.joinSpecializedTypeArray(builder, typeArguments);
     }
 
     private boolean hasOuter() {
@@ -169,11 +292,15 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
 
     private static boolean partiallyRawArray(SpecializedTypeDescriptor[] typeArguments) {
         for (var typeArg : typeArguments) {
-            if (typeArg == ErasedType.instance() || typeArg instanceof ClassDescriptor cd && (cd.partiallyRaw() || cd.isRaw())) {
+            if (SpecializedTypeUtils.partiallyRaw(typeArg)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean partiallyRaw(ClassDescriptor descriptor) {
+        return descriptor != null && descriptor.partiallyRaw();
     }
 
     private static final byte IS_RAW = 1;
@@ -183,5 +310,7 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     private static final byte PARTIALLY_RAW = 1 << 2;
 
     private static final byte DEFAULT = (byte) 0b1000_0000;
+
+    private static final SpecializedTypeDescriptor[] EMPTY_ARRAY = new SpecializedTypeDescriptor[0];
 
 }

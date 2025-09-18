@@ -14,13 +14,18 @@ public final class ArrayDescriptor implements SpecializedTypeDescriptor {
     @Stable
     private final SpecializedTypeDescriptor componentType;
 
+    /// 1 -> true \
+    /// -1 -> false
+    @Stable
+    private final byte partiallyRaw;
+
     @Stable
     private Type javaType;
-
 
     private ArrayDescriptor(SpecializedTypeDescriptor componentType) {
         Utils.requireNonNull(componentType);
         this.componentType = componentType;
+        this.partiallyRaw = (byte) (SpecializedTypeUtils.partiallyRaw(componentType) ? 1 : -1);
     }
 
     /// Creates a new array type.
@@ -36,11 +41,6 @@ public final class ArrayDescriptor implements SpecializedTypeDescriptor {
     /// @return the component type
     public SpecializedTypeDescriptor componentType() {
         return componentType;
-    }
-
-    @Override
-    public String toString() {
-        return SpecializedTypeUtils.stringify(this);
     }
 
     @Override
@@ -61,6 +61,15 @@ public final class ArrayDescriptor implements SpecializedTypeDescriptor {
                 throw new AssertionError("Unknown component type: " + component);
         }
         return javaType;
+    }
+
+    boolean partiallyRaw() {
+        return partiallyRaw == 1;
+    }
+
+    @Override
+    public String toString() {
+        return SpecializedTypeUtils.stringify(this);
     }
 
     @Override

@@ -3,7 +3,7 @@ package java.util.ptype.util;
 /// An iterator
 ///
 /// @param <E> the type iterated over
-public interface Iterator<E> {
+interface Iterator<E> {
 
     /// Whether there is still items to iterate.
     ///

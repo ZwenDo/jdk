@@ -169,11 +169,59 @@ public final class TransParameterizedTypes {
                 syms.arrayDescriptorType.tsym
         );
 
-        public final Symbol.MethodSymbol classDescriptorConstructor = new Symbol.MethodSymbol(
+        public final Symbol.MethodSymbol classDescriptorConstructorAA = new Symbol.MethodSymbol(
                 PUBLIC | VARARGS,
                 names.init,
                 new Type.MethodType(
-                        List.of(syms.classDescriptorType, syms.classType, syms.booleanType, types.makeArrayType(syms.specializedTypeDescriptorType)),
+                        List.of(syms.classDescriptorType, syms.classType, types.makeArrayType(syms.specializedTypeDescriptorType)),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.classDescriptorType.tsym
+        );
+
+        public final Symbol.MethodSymbol classDescriptorConstructor0 = new Symbol.MethodSymbol(
+                PUBLIC,
+                names.init,
+                new Type.MethodType(
+                        List.of(syms.classDescriptorType, syms.classType, syms.booleanType),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.classDescriptorType.tsym
+        );
+
+        public final Symbol.MethodSymbol classDescriptorConstructor1 = new Symbol.MethodSymbol(
+                PUBLIC,
+                names.init,
+                new Type.MethodType(
+                        List.of(syms.classDescriptorType, syms.classType, syms.specializedTypeDescriptorType),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.classDescriptorType.tsym
+        );
+
+        public final Symbol.MethodSymbol classDescriptorConstructor2 = new Symbol.MethodSymbol(
+                PUBLIC,
+                names.init,
+                new Type.MethodType(
+                        List.of(syms.classDescriptorType, syms.classType, syms.specializedTypeDescriptorType, syms.specializedTypeDescriptorType),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.classDescriptorType.tsym
+        );
+
+        public final Symbol.MethodSymbol classDescriptorConstructor3 = new Symbol.MethodSymbol(
+                PUBLIC,
+                names.init,
+                new Type.MethodType(
+                        List.of(syms.classDescriptorType, syms.classType, syms.specializedTypeDescriptorType, syms.specializedTypeDescriptorType, syms.specializedTypeDescriptorType),
                         syms.voidType,
                         List.nil(),
                         syms.methodClass
@@ -186,6 +234,42 @@ public final class TransParameterizedTypes {
                 names.init,
                 new Type.MethodType(
                         List.of(types.makeArrayType(syms.specializedTypeDescriptorType)),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.methodDescriptorType.tsym
+        );
+
+        public final Symbol.MethodSymbol specializedMethodTypeArgsConstructor1 = new Symbol.MethodSymbol(
+                PUBLIC,
+                names.init,
+                new Type.MethodType(
+                        List.of(syms.specializedTypeDescriptorType),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.methodDescriptorType.tsym
+        );
+
+        public final Symbol.MethodSymbol specializedMethodTypeArgsConstructor2 = new Symbol.MethodSymbol(
+                PUBLIC,
+                names.init,
+                new Type.MethodType(
+                        List.of(syms.specializedTypeDescriptorType, syms.specializedTypeDescriptorType),
+                        syms.voidType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.methodDescriptorType.tsym
+        );
+
+        public final Symbol.MethodSymbol specializedMethodTypeArgsConstructor3 = new Symbol.MethodSymbol(
+                PUBLIC,
+                names.init,
+                new Type.MethodType(
+                        List.of(syms.specializedTypeDescriptorType, syms.specializedTypeDescriptorType),
                         syms.voidType,
                         List.nil(),
                         syms.methodClass
@@ -293,7 +377,7 @@ public final class TransParameterizedTypes {
         );
 
         public final Symbol.MethodSymbol constantClassDescriptorBootstrapMethod = new Symbol.MethodSymbol(
-                PUBLIC | STATIC,
+                PUBLIC | STATIC | VARARGS,
                 names.fromString("constantClassDescriptor"),
                 new Type.MethodType(
                         List.of(
@@ -312,7 +396,7 @@ public final class TransParameterizedTypes {
         );
 
         public final Symbol.MethodSymbol noOuterConstantClassDescriptorBootstrapMethod = new Symbol.MethodSymbol(
-                PUBLIC | STATIC,
+                PUBLIC | STATIC | VARARGS,
                 names.fromString("constantClassDescriptor"),
                 new Type.MethodType(
                         List.of(
@@ -321,41 +405,6 @@ public final class TransParameterizedTypes {
                                 syms.classType,
                                 syms.stringType,
                                 types.makeArrayType(syms.objectType)
-                        ),
-                        syms.specializedTypeDescriptorType,
-                        List.nil(),
-                        syms.methodClass
-                ),
-                syms.constantSpecializedTypesType.tsym
-        );
-
-        public final Symbol.MethodSymbol rawTypeDescriptorBootstrapMethod = new Symbol.MethodSymbol(
-                PUBLIC | STATIC,
-                names.fromString("rawTypeDescriptor"),
-                new Type.MethodType(
-                        List.of(
-                                syms.methodHandleLookupType,
-                                syms.stringType,
-                                syms.classType,
-                                syms.objectType,
-                                syms.classType
-                        ),
-                        syms.specializedTypeDescriptorType,
-                        List.nil(),
-                        syms.methodClass
-                ),
-                syms.constantSpecializedTypesType.tsym
-        );
-
-        public final Symbol.MethodSymbol noOuterRawTypeDescriptorBootstrapMethod = new Symbol.MethodSymbol(
-                PUBLIC | STATIC,
-                names.fromString("rawTypeDescriptor"),
-                new Type.MethodType(
-                        List.of(
-                                syms.methodHandleLookupType,
-                                syms.stringType,
-                                syms.classType,
-                                syms.classType
                         ),
                         syms.specializedTypeDescriptorType,
                         List.nil(),
@@ -398,7 +447,7 @@ public final class TransParameterizedTypes {
         );
 
         public final Symbol.MethodSymbol constantMethodDescriptorBoostrapMethod = new Symbol.MethodSymbol(
-                PUBLIC | STATIC,
+                PUBLIC | STATIC | VARARGS,
                 names.fromString("constantMethodDescriptor"),
                 new Type.MethodType(
                         List.of(
@@ -406,22 +455,6 @@ public final class TransParameterizedTypes {
                                 syms.stringType,
                                 syms.classType,
                                 types.makeArrayType(syms.objectType)
-                        ),
-                        syms.methodDescriptorType,
-                        List.nil(),
-                        syms.methodClass
-                ),
-                syms.constantSpecializedTypesType.tsym
-        );
-
-        public final Symbol.MethodSymbol erasedMethodDescriptorBoostrapMethod = new Symbol.MethodSymbol(
-                PUBLIC | STATIC,
-                names.fromString("erasedMethodDescriptor"),
-                new Type.MethodType(
-                        List.of(
-                                syms.methodHandleLookupType,
-                                syms.stringType,
-                                syms.classType
                         ),
                         syms.methodDescriptorType,
                         List.nil(),
@@ -1082,24 +1115,18 @@ public final class TransParameterizedTypes {
             tree.stats = List.of(methodDef, constructorDef, tryFinally);
         }
 
-        //        @Override
-//        public void visitLambda(JCTree.JCLambda tree) {
-//            var oldState = typeParameterScopeGroupState;
-//            typeParameterScopes.pushLambdaGroup(
-//                    new Symbol.VarSymbol(
-//                            PRIVATE | FINAL,
-//                            constantHolder().objectTypeArgumentsFieldName,
-//                            syms.specializedTypeType,
-//                            null // we will set the actual value
-//                    )
-//            );
-//            typeParameterScopeGroupState = typeParameterScopes.newState();
-//            try {
-//                super.visitLambda(tree);
-//            } finally {
-//                typeParameterScopeGroupState = oldState;
-//            }
-//        }
+        @Override
+        public void visitLambda(JCTree.JCLambda tree) {
+            super.visitLambda(tree);
+//            System.out.println(tree.type);
+        }
+
+        @Override
+        public void visitReference(JCTree.JCMemberReference tree) {
+            super.visitReference(tree);
+//            System.out.println(tree.type);
+        }
+
         public void visitRegularMethod(JCTree.JCMethodDecl method) {
             var oldExtraVariablesOwner = extraVariablesOwner;
             try {
@@ -1155,14 +1182,14 @@ public final class TransParameterizedTypes {
             );
             var pushedExpression = generatedArgs.map(l -> {
                         if (!constantList(l)) {
-                            var call = constructorInvocation(constantHolder.specializedMethodTypeArgsConstructor);
+                            var call = constructorInvocation(methodDescriptorConstructor(l.length()));
                             call.args = l;
                             return call;
                         }
                         var args = l.map(e -> (Symbol.DynamicVarSymbol) ((JCTree.JCIdent) e).sym)
                                 .toArray(PoolConstant.LoadableConstant[]::new);
                         var name = sym.name.append(names.fromString("$"));
-                        for (var it = l.iterator(); it.hasNext();) {
+                        for (var it = l.iterator(); it.hasNext(); ) {
                             var ident = (JCTree.JCIdent) it.next();
                             name = name.append(ident.name);
                             if (it.hasNext()) {
@@ -1220,12 +1247,7 @@ public final class TransParameterizedTypes {
                 pushedValue = argLiteralGenerator.constantClassDescriptor(null, (Type.ClassType) sym.owner.type, isRaw, args);
             } else {
                 enclosingDescriptor = nullLiteral();
-                var call = constructorInvocation(constantHolder.classDescriptorConstructor);
-                call.args = args
-                        .prepend(make.Literal(isRaw))
-                        .prepend(classLiteral(sym.owner.type))
-                        .prepend(enclosingDescriptor);
-                pushedValue = call;
+                pushedValue = classDescriptorConstructorInvocation(enclosingDescriptor, sym.owner.type, args);
             }
 
 
@@ -1433,14 +1455,7 @@ public final class TransParameterizedTypes {
                 outerType = outerType == null ? nullLiteral() : outerType;
             }
 
-            var call = constructorInvocation(constantHolder.classDescriptorConstructor);
-
-            // for raw and non parameterized classes typeArguments keeps the empty list value
-            call.args = typeArguments
-                    .prepend(make.Literal(type.isRaw()))
-                    .prepend(classLiteral(types.erasure(type)))
-                    .prepend(outerType);
-            return call;
+            return classDescriptorConstructorInvocation(outerType, type, typeArguments);
         }
 
         private JCTree.JCExpression generateTypeVarKind(Type.TypeVar type) {
@@ -1553,16 +1568,9 @@ public final class TransParameterizedTypes {
                 name = name.append(names.fromString("$xc$"));
             }
 
-            Symbol.MethodSymbol meth;
-            if (isRaw) {
-                meth = outer != null
-                        ? constantHolder.rawTypeDescriptorBootstrapMethod
-                        : constantHolder.noOuterRawTypeDescriptorBootstrapMethod;
-            } else {
-                meth = outer != null
-                        ? constantHolder.constantClassDescriptorBootstrapMethod
-                        : constantHolder.noOuterConstantClassDescriptorBootstrapMethod;
-            }
+            var meth = outer != null
+                    ? constantHolder.constantClassDescriptorBootstrapMethod
+                    : constantHolder.noOuterConstantClassDescriptorBootstrapMethod;
 
             var arraySize = arguments.size() + 1;
             if (outer != null) {
@@ -2141,6 +2149,35 @@ public final class TransParameterizedTypes {
                 syms.specializedTypeDescriptorType,
                 new PoolConstant.LoadableConstant[0]
         );
+    }
+
+    private JCTree.JCExpression classDescriptorConstructorInvocation(JCTree.JCExpression outer, Type type, List<JCTree.JCExpression> typeArguments) {
+        if (typeArguments.isEmpty()) {
+            var call = constructorInvocation(constantHolder.classDescriptorConstructor0);
+            call.args = List.of(make.Literal(type.isRaw()), classLiteral(type), outer);
+            return call;
+        }
+
+        var constructor = switch (typeArguments.length()) {
+            case 1 -> constantHolder.classDescriptorConstructor1;
+            case 2 -> constantHolder.classDescriptorConstructor2;
+            case 3 -> constantHolder.classDescriptorConstructor3;
+            default -> constantHolder.classDescriptorConstructorAA;
+        };
+
+        var call = constructorInvocation(constructor);
+        call.args = typeArguments.prepend(classLiteral(type)).prepend(outer);
+        return call;
+    }
+
+    private Symbol.MethodSymbol methodDescriptorConstructor(int argCount) {
+        return switch (argCount) {
+            case 0 -> throw new AssertionError("zero");
+            case 1 -> constantHolder.specializedMethodTypeArgsConstructor1;
+            case 2 -> constantHolder.specializedMethodTypeArgsConstructor2;
+            case 3 -> constantHolder.specializedMethodTypeArgsConstructor3;
+            default -> constantHolder.specializedMethodTypeArgsConstructor;
+        };
     }
     //endregion
 

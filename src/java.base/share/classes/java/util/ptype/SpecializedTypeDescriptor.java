@@ -31,9 +31,8 @@ public sealed interface SpecializedTypeDescriptor permits ArrayDescriptor, Class
     @CompilerIntrinsic
     static Optional<ClassDescriptor> from(Object holder) {
         Utils.requireNonNull(holder);
-        var internal = Internal.extractInformationField(holder);
-        if (internal.isEmpty()) return Optional.empty();
-        var value = internal.get();
+        var value = Internal.extractInformationField(holder);
+        if (value == null) return Optional.empty();
         if (value.partiallyRaw()) return Optional.empty();
         return Optional.of(value);
     }

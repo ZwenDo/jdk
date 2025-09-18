@@ -64,7 +64,7 @@ public final class HashSet<E> {
     /// Returns an iterator over the elements in the set. The elements are returned in no particular order.
     ///
     /// @return an iterator over the elements in the set
-    public Iterator<E> iterator() {
+    Iterator<E> iterator() {
         return new Iterator<>() {
             private final int expectedModCount = modCount;
             private int index;

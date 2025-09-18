@@ -2,15 +2,15 @@ package java.util.ptype;
 
 import jdk.internal.vm.annotation.Stable;
 
+import java.util.Arrays;
 import java.util.Objects;
-import java.util.ptype.util.ArrayList;
 import java.util.ptype.util.Utils;
 
 /// Represents the type arguments of a method.
 public final class MethodDescriptor {
 
     @Stable
-    private final ArrayList<SpecializedTypeDescriptor> arguments;
+    private final SpecializedTypeDescriptor[] arguments;
 
     ///  1 -> true \
     /// -1 -> false
@@ -22,11 +22,46 @@ public final class MethodDescriptor {
     /// @param arguments the arguments of the method
     public MethodDescriptor(SpecializedTypeDescriptor... arguments) {
         Utils.requireNonNull(arguments);
+        this.isRaw = -1;
         if (arguments.length == 0) {
             throw new IllegalArgumentException("Cannot create a specialized method type arguments instance without type arguments");
         }
+        var array = new SpecializedTypeDescriptor[arguments.length];
+        System.arraycopy(arguments, 0, array, 0, arguments.length);
+        this.arguments = array;
+    }
+
+    /// Creates a new instance.
+    ///
+    /// @param arg1 the first argument
+    public MethodDescriptor(SpecializedTypeDescriptor arg1) {
+        Utils.requireNonNull(arg1);
         this.isRaw = -1;
-        this.arguments = ArrayList.of(arguments);
+        this.arguments = new SpecializedTypeDescriptor[] {arg1};
+    }
+
+    /// Creates a new instance.
+    ///
+    /// @param arg1 the first argument
+    /// @param arg2 the second argument
+    public MethodDescriptor(SpecializedTypeDescriptor arg1, SpecializedTypeDescriptor arg2) {
+        Utils.requireNonNull(arg1);
+        Utils.requireNonNull(arg2);
+        this.isRaw = -1;
+        this.arguments = new SpecializedTypeDescriptor[] {arg1, arg2};
+    }
+
+    /// Creates a new instance.
+    ///
+    /// @param arg1 the first argument
+    /// @param arg2 the second argument
+    /// @param arg3 the third argument
+    public MethodDescriptor(SpecializedTypeDescriptor arg1, SpecializedTypeDescriptor arg2, SpecializedTypeDescriptor arg3) {
+        Utils.requireNonNull(arg1);
+        Utils.requireNonNull(arg2);
+        Utils.requireNonNull(arg3);
+        this.isRaw = -1;
+        this.arguments = new SpecializedTypeDescriptor[] {arg1, arg2, arg3};
     }
 
     private MethodDescriptor() {
@@ -39,7 +74,8 @@ public final class MethodDescriptor {
     /// @param index the index of the specialized type.
     /// @return the found type
     public SpecializedTypeDescriptor typeArgument(int index) {
-        return isRaw() ? ErasedType.instance() : arguments.get(index);
+        Objects.checkIndex(index, arguments.length);
+        return isRaw() ? ErasedType.instance() : arguments[index];
     }
 
     /// Whether this parameterized type represents a raw type.
@@ -54,7 +90,7 @@ public final class MethodDescriptor {
         if (isRaw()) return "<*raw*>";
         var builder = new StringBuilder();
         builder.append("<");
-        arguments.joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
+        SpecializedTypeUtils.joinSpecializedTypeArray(builder, arguments);
         builder.append(">");
         return builder.toString();
     }
@@ -62,12 +98,12 @@ public final class MethodDescriptor {
     @Override
     public boolean equals(Object o) {
         if (!(o instanceof MethodDescriptor that)) return false;
-        return isRaw == that.isRaw && Objects.equals(arguments, that.arguments);
+        return isRaw == that.isRaw && Arrays.equals(arguments, that.arguments);
     }
 
     @Override
     public int hashCode() {
-        var result = Objects.hashCode(arguments);
+        var result = Arrays.hashCode(arguments);
         result = 31 * result + isRaw;
         return result;
     }

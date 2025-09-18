@@ -29,7 +29,12 @@ public final class ConstantSpecializedTypes {
     ) {
         Utils.requireNonNull(outer);
         Utils.requireNonNull(rawType);
-        return newClassDescriptor((ClassDescriptor) outer, classFromName(lookup, rawType), false, typeArguments);
+        var outerDescriptor = (ClassDescriptor) outer;
+        if (typeArguments.length == 0) {
+            return newParamLessClassDescriptor(outerDescriptor, classFromName(lookup, rawType));
+        } else {
+            return newClassDescriptor(outerDescriptor, classFromName(lookup, rawType), typeArguments);
+        }
     }
 
     /// Creates a new constant parameterized type descriptor.
@@ -48,44 +53,11 @@ public final class ConstantSpecializedTypes {
             Object... typeArguments
     ) {
         Utils.requireNonNull(rawType);
-        return newClassDescriptor(null, classFromName(lookup, rawType), false, typeArguments);
-    }
-
-    /// Creates a new raw parameterized type descriptor.
-    ///
-    /// @param lookup       the lookup context (unused)
-    /// @param variableName the name of the variable (unused)
-    /// @param variableType the type of the variable (unused)
-    /// @param outer        the outer class descriptor
-    /// @param rawType      the raw type
-    /// @return the created type descriptor
-    public static SpecializedTypeDescriptor rawTypeDescriptor(
-            MethodHandles.Lookup lookup,
-            String variableName,
-            Class<SpecializedTypeDescriptor> variableType,
-            Object outer,
-            Class<?> rawType
-    ) {
-        Utils.requireNonNull(outer);
-        Utils.requireNonNull(rawType);
-        return newClassDescriptor((ClassDescriptor) outer, rawType, true);
-    }
-
-    /// Creates a new raw parameterized type descriptor.
-    ///
-    /// @param lookup       the lookup context (unused)
-    /// @param variableName the name of the variable (unused)
-    /// @param variableType the type of the variable (unused)
-    /// @param rawType      the raw type
-    /// @return the created type descriptor
-    public static SpecializedTypeDescriptor rawTypeDescriptor(
-            MethodHandles.Lookup lookup,
-            String variableName,
-            Class<SpecializedTypeDescriptor> variableType,
-            Class<?> rawType
-    ) {
-        Utils.requireNonNull(rawType);
-        return newClassDescriptor(null, rawType, true);
+        if (typeArguments.length == 0) {
+            return newParamLessClassDescriptor(null, classFromName(lookup, rawType));
+        } else {
+            return newClassDescriptor(null, classFromName(lookup, rawType), typeArguments);
+        }
     }
 
     /// Creates a new constant parameterized type descriptor.
@@ -154,17 +126,27 @@ public final class ConstantSpecializedTypes {
     private static SpecializedTypeDescriptor newClassDescriptor(
             ClassDescriptor outer,
             Class<?> rawType,
-            boolean isRaw,
             Object... typeArguments
     ) {
         SpecializedTypeDescriptor[] args;
-        if (typeArguments.length != 0) {
-            args = new SpecializedTypeDescriptor[typeArguments.length];
-            System.arraycopy(typeArguments, 0, args, 0, typeArguments.length);
-        } else {
-            args = new SpecializedTypeDescriptor[0];
+        if (typeArguments.length == 0) {
+            throw new AssertionError("No type arguments were provided.");
         }
-        var instance = new ClassDescriptor(outer, rawType, isRaw, args);
+        args = new SpecializedTypeDescriptor[typeArguments.length];
+        System.arraycopy(typeArguments, 0, args, 0, typeArguments.length);
+        var instance = new ClassDescriptor(outer, rawType, args);
+        var old = CACHE.add(instance);
+        if (old != null) {
+            return (SpecializedTypeDescriptor) old;
+        }
+        return instance;
+    }
+
+    private static SpecializedTypeDescriptor newParamLessClassDescriptor(
+            ClassDescriptor outer,
+            Class<?> rawType
+    ) {
+        var instance = new ClassDescriptor(outer, rawType, rawType.getTypeParameters().length > 0);
         var old = CACHE.add(instance);
         if (old != null) {
             return (SpecializedTypeDescriptor) old;

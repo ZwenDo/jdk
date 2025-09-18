@@ -5,7 +5,6 @@ import jdk.internal.misc.VM;
 import java.util.Optional;
 import java.util.ptype.util.Utils;
 
-
 /// Class providing operations on [SpecializedTypes][SpecializedTypeDescriptor].
 public final class SpecializedTypeUtils {
 
@@ -41,11 +40,10 @@ public final class SpecializedTypeUtils {
                     break;
                 }
 
-                if (classDescriptor.typeArguments().isEmpty()) break;
-
+                if (!classDescriptor.hasTypeArguments()) break;
 
                 builder.append('<');
-                classDescriptor.typeArguments().joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
+                classDescriptor.joinArguments(builder);
                 builder.append('>');
 
                 break;
@@ -54,7 +52,28 @@ public final class SpecializedTypeUtils {
                 break;
         }
     }
+
+    static void joinSpecializedTypeArray(StringBuilder builder, SpecializedTypeDescriptor[] array) {
+        for (int i = 0; i < array.length; i++) {
+            appendToBuilder(builder, array[i]);
+            if (i + 1 < array.length) {
+                builder.append(", ");
+            }
+        }
+    }
     //endregion
+
+    static boolean partiallyRaw(SpecializedTypeDescriptor descriptor) {
+        Utils.requireNonNull(descriptor);
+        switch (descriptor) {
+            case ArrayDescriptor arrayDescriptor:
+                return arrayDescriptor.partiallyRaw();
+            case ClassDescriptor classDescriptor:
+                return classDescriptor.partiallyRaw();
+            case ErasedType _:
+                return true;
+        }
+    }
 
     //region Type Verification
 
@@ -128,11 +147,11 @@ public final class SpecializedTypeUtils {
 
     private static boolean validate(Object obj, SpecializedTypeDescriptor expected, Class<?> supertype) {
         var objClass = obj.getClass();
-        var opt = Internal.extractInformationField(obj);
-        if (opt.isEmpty()) {
+        var value = Internal.extractInformationField(obj);
+        if (value == null) {
             return supertype.isAssignableFrom(objClass);
         }
-        return isAssignable(expected, opt.get());
+        return isAssignable(expected, value);
     }
 
     private static String errorMessage(Object obj, SpecializedTypeDescriptor expected) {
@@ -145,8 +164,8 @@ public final class SpecializedTypeUtils {
         var builder = new StringBuilder();
 
         var type = Internal.extractInformationField(objClass);
-        if (type.isPresent()) {
-            appendToBuilder(builder, type.get());
+        if (type != null) {
+            appendToBuilder(builder, type);
         } else {
             builder.append(objClass.getName());
         }
@@ -168,14 +187,7 @@ public final class SpecializedTypeUtils {
     /// @param <T> the type of the specialized type descriptor
     public static <T extends SpecializedTypeDescriptor> Optional<T> filterErasedType(T type) {
         Utils.requireNonNull(type);
-        switch (type) {
-            case ArrayDescriptor arrayDescriptor:
-                return Optional.of(type);
-            case ClassDescriptor classDescriptor:
-                return classDescriptor.partiallyRaw() || classDescriptor.isRaw() ? Optional.empty() : Optional.of(type);
-            case ErasedType _:
-                return Optional.empty();
-        }
+        return partiallyRaw(type) ? Optional.empty() : Optional.of(type);
     }
 
 
