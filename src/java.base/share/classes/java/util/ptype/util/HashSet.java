@@ -102,6 +102,7 @@ public final class HashSet<E> {
                         return;
                     }
                 }
+                current = null;
             }
         };
     }

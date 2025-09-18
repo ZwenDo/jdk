@@ -8,6 +8,7 @@ import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ptype.util.HashMap;
+import java.util.ptype.util.HashSet;
 import java.util.ptype.util.Optional;
 import java.util.ptype.util.Utils;
 
@@ -34,8 +35,8 @@ public final class Internal {
             try {
                 return Holder.LOOKUP.findStatic(
                         type,
-                        "$computeSuper",
-                        MethodType.methodType(HashMap.class, ClassDescriptor.class)
+                        "$populateSuperSet",
+                        MethodType.methodType(void.class, ClassDescriptor.class, HashSet.class)
                 );
             } catch (NoSuchMethodException | IllegalAccessException e) {
                 throw new AssertionError(e);
@@ -64,7 +65,9 @@ public final class Internal {
         Utils.requireNonNull(concrete);
         try {
             var method = SUPER_GENERATION_CACHE.get(type);
-            return (HashMap<Class<?>, ClassDescriptor>) method.invokeExact(concrete);
+            var set = new HashSet<SuperTypeMapping>();
+            method.invokeExact(concrete, set);
+            return HashMap.superTypeMap(set);
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }

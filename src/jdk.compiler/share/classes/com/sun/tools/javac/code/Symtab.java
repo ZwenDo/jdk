@@ -215,18 +215,18 @@ public class Symtab {
     public final Type lambdaMetafactory;
 
     public final Type specializedTypeDescriptorType;
-    public final Type specializedTypeUtilsClassType;
     public final Type methodDescriptorType;
     public final Type classDescriptorType;
     public final Type erasedTypeType;
     public final Type arrayDescriptorType;
     public final Type specializedTypeUtilsType;
     public final Type specializedTypePassingHandleType;
-    public final Type specializedTypeHashMapType;
+    public final Type specializedTypeHashSetType;
     public final Type stackWalkerType;
     public final Type compilerIntrinsicType;
     public final Type optionalType;
     public final Type constantSpecializedTypesType;
+    public final Type superTypeMappingType;
 
     public final Type stringConcatFactory;
     public final Type repeatableType;
@@ -623,18 +623,18 @@ public class Symtab {
         lambdaMetafactory = enterClass("java.lang.invoke.LambdaMetafactory");
 
         specializedTypeDescriptorType = enterClass("java.util.ptype.SpecializedTypeDescriptor");
-        specializedTypeUtilsClassType = enterClass("java.util.ptype.util.Utils");
         methodDescriptorType = enterClass("java.util.ptype.MethodDescriptor");
         classDescriptorType = enterClass("java.util.ptype.ClassDescriptor");
         erasedTypeType = enterClass("java.util.ptype.ErasedType");
         arrayDescriptorType = enterClass("java.util.ptype.ArrayDescriptor");
         specializedTypeUtilsType = enterClass("java.util.ptype.SpecializedTypeUtils");
         specializedTypePassingHandleType = enterClass("java.util.ptype.SpecializedTypePassingHandler");
-        specializedTypeHashMapType = enterClass("java.util.ptype.util.HashMap");
+        specializedTypeHashSetType = enterClass("java.util.ptype.util.HashSet");
         stackWalkerType = enterClass("java.lang.StackWalker");
         compilerIntrinsicType = enterClass("java.lang.annotation.CompilerIntrinsic");
         optionalType = enterClass("java.util.Optional");
         constantSpecializedTypesType = enterClass("java.util.ptype.ConstantSpecializedTypes");
+        superTypeMappingType = enterClass("java.util.ptype.SuperTypeMapping");
 
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");
@@ -672,7 +672,6 @@ public class Symtab {
         synthesizeBoxTypeIfMissing(voidType);
 
         synthesizeEmptyInterfaceIfMissing(specializedTypeDescriptorType);
-        synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsClassType);
         synthesizeEmptyInterfaceIfMissing(classDescriptorType);
         synthesizeEmptyInterfaceIfMissing(erasedTypeType);
         synthesizeEmptyInterfaceIfMissing(arrayDescriptorType);
@@ -680,9 +679,10 @@ public class Symtab {
         synthesizeEmptyInterfaceIfMissing(specializedTypePassingHandleType);
         synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsType);
         synthesizeEmptyInterfaceIfMissing(stackWalkerType);
-        synthesizeEmptyInterfaceIfMissing(specializedTypeHashMapType);
+        synthesizeEmptyInterfaceIfMissing(specializedTypeHashSetType);
         synthesizeEmptyInterfaceIfMissing(compilerIntrinsicType);
         synthesizeEmptyInterfaceIfMissing(constantSpecializedTypesType);
+        synthesizeEmptyInterfaceIfMissing(superTypeMappingType);
 
         // Enter a synthetic class that is used to mark internal
         // proprietary classes in ct.sym.  This class does not have a
