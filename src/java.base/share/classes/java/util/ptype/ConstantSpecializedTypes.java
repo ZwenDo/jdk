@@ -8,7 +8,7 @@ import java.util.ptype.util.Utils;
 /// Utility class for creating constant specialized type descriptors.
 public final class ConstantSpecializedTypes {
 
-    private static final HashSet<SpecializedTypeDescriptor> CACHE = new HashSet<>();
+    private static final HashSet<Object> CACHE = new HashSet<>();
 
     /// Creates a new constant parameterized type descriptor.
     ///
@@ -106,7 +106,7 @@ public final class ConstantSpecializedTypes {
         var instance = ArrayDescriptor.of(componentDesc);
         var old = CACHE.add(instance);
         if (old != null) {
-            return old;
+            return (SpecializedTypeDescriptor) old;
         }
         return instance;
     }
@@ -125,6 +125,32 @@ public final class ConstantSpecializedTypes {
         return ErasedType.instance();
     }
 
+    /// Creates a new constant method descriptor.
+    ///
+    /// @param lookup        the lookup context (unused)
+    /// @param variableName  the name of the variable (unused)
+    /// @param variableType  the type of the variable (unused)
+    /// @param typeArguments the type arguments
+    /// @return the created type descriptor
+    public static MethodDescriptor constantMethodDescriptor(
+            MethodHandles.Lookup lookup,
+            String variableName,
+            Class<MethodDescriptor> variableType,
+            Object... typeArguments
+    ) {
+        if (typeArguments.length == 0) {
+            throw new IllegalArgumentException("Should have at least one argument");
+        }
+        var args = new SpecializedTypeDescriptor[typeArguments.length];
+        System.arraycopy(typeArguments, 0, args, 0, typeArguments.length);
+        var instance = new MethodDescriptor(args);
+        var old = CACHE.add(instance);
+        if (old != null) {
+            return (MethodDescriptor) old;
+        }
+        return instance;
+    }
+
     private static SpecializedTypeDescriptor newClassDescriptor(
             ClassDescriptor outer,
             Class<?> rawType,
@@ -141,7 +167,7 @@ public final class ConstantSpecializedTypes {
         var instance = new ClassDescriptor(outer, rawType, isRaw, args);
         var old = CACHE.add(instance);
         if (old != null) {
-            return old;
+            return (SpecializedTypeDescriptor) old;
         }
         return instance;
     }

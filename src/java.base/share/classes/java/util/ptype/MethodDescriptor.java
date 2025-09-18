@@ -2,6 +2,7 @@ package java.util.ptype;
 
 import jdk.internal.vm.annotation.Stable;
 
+import java.util.Objects;
 import java.util.ptype.util.ArrayList;
 import java.util.ptype.util.Utils;
 
@@ -56,6 +57,19 @@ public final class MethodDescriptor {
         arguments.joinTo(builder, SpecializedTypeUtils::appendToBuilder, ", ");
         builder.append(">");
         return builder.toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof MethodDescriptor that)) return false;
+        return isRaw == that.isRaw && Objects.equals(arguments, that.arguments);
+    }
+
+    @Override
+    public int hashCode() {
+        var result = Objects.hashCode(arguments);
+        result = 31 * result + isRaw;
+        return result;
     }
 
     /// Gets the raw method descriptor instance.

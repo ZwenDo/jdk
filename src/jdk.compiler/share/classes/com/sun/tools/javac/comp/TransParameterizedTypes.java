@@ -8,9 +8,10 @@ import com.sun.tools.javac.tree.TreeInfo;
 import com.sun.tools.javac.tree.TreeMaker;
 import com.sun.tools.javac.tree.TreeTranslator;
 import com.sun.tools.javac.util.*;
-import com.sun.tools.javac.util.List;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -390,6 +391,39 @@ public final class TransParameterizedTypes {
                                 syms.classType
                         ),
                         syms.specializedTypeDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.constantSpecializedTypesType.tsym
+        );
+
+        public final Symbol.MethodSymbol constantMethodDescriptorBoostrapMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("constantMethodDescriptor"),
+                new Type.MethodType(
+                        List.of(
+                                syms.methodHandleLookupType,
+                                syms.stringType,
+                                syms.classType,
+                                types.makeArrayType(syms.objectType)
+                        ),
+                        syms.methodDescriptorType,
+                        List.nil(),
+                        syms.methodClass
+                ),
+                syms.constantSpecializedTypesType.tsym
+        );
+
+        public final Symbol.MethodSymbol erasedMethodDescriptorBoostrapMethod = new Symbol.MethodSymbol(
+                PUBLIC | STATIC,
+                names.fromString("erasedMethodDescriptor"),
+                new Type.MethodType(
+                        List.of(
+                                syms.methodHandleLookupType,
+                                syms.stringType,
+                                syms.classType
+                        ),
+                        syms.methodDescriptorType,
                         List.nil(),
                         syms.methodClass
                 ),
@@ -1119,10 +1153,31 @@ public final class TransParameterizedTypes {
                     explicitTypes,
                     isRaw
             );
-            var pushedExpression = generatedArgs.<JCTree.JCExpression>map(l -> {
-                        var call = constructorInvocation(constantHolder.specializedMethodTypeArgsConstructor);
-                        call.args = l;
-                        return call;
+            var pushedExpression = generatedArgs.map(l -> {
+                        if (!constantList(l)) {
+                            var call = constructorInvocation(constantHolder.specializedMethodTypeArgsConstructor);
+                            call.args = l;
+                            return call;
+                        }
+                        var args = l.map(e -> (Symbol.DynamicVarSymbol) ((JCTree.JCIdent) e).sym)
+                                .toArray(PoolConstant.LoadableConstant[]::new);
+                        var name = sym.name.append(names.fromString("$"));
+                        for (var it = l.iterator(); it.hasNext();) {
+                            var ident = (JCTree.JCIdent) it.next();
+                            name = name.append(ident.name);
+                            if (it.hasNext()) {
+                                name = name.append(names.fromString("_"));
+                            }
+                        }
+                        name = name.append(names.fromString("$"));
+                        var condy = new Symbol.DynamicVarSymbol(
+                                name,
+                                syms.noSymbol,
+                                constantHolder.constantMethodDescriptorBoostrapMethod.asHandle(),
+                                syms.methodDescriptorType,
+                                args
+                        );
+                        return make.Ident(condy);
                     })
                     .orElseGet(TransParameterizedTypes.this::nullLiteral);
             var push = staticMethodInvocation(constantHolder.pushMethod);
@@ -2019,7 +2074,8 @@ public final class TransParameterizedTypes {
                         scope.states = scope.states.tail;
                         scope.constructorPassedDescriptor = null;
                     }
-                    case NO_OP -> {}
+                    case NO_OP -> {
+                    }
                 }
             }
 
