@@ -12,9 +12,7 @@ public final class SpecializedTypeUtils {
     static String stringify(SpecializedTypeDescriptor type) {
         Utils.requireNonNull(type);
         var builder = new StringBuilder();
-        builder.append("SpecializedTypeDescriptor(");
         appendToBuilder(builder, type);
-        builder.append(")");
         return builder.toString();
     }
 
@@ -183,10 +181,10 @@ public final class SpecializedTypeUtils {
     /// Utility method that filters out erased types to return only fully specialized types to users.
     ///
     /// @param type the type to filter
-    /// @return the filtered type or null if the type is erased
+    /// @return the filtered type or empty if the type is erased
     /// @param <T> the type of the specialized type descriptor
     public static <T extends SpecializedTypeDescriptor> Optional<T> filterErasedType(T type) {
-        Utils.requireNonNull(type);
+        if (type == null) return Optional.empty();
         return partiallyRaw(type) ? Optional.empty() : Optional.of(type);
     }
 

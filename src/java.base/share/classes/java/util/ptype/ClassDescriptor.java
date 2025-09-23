@@ -12,7 +12,7 @@ import java.util.ptype.util.HashMap;
 import java.util.ptype.util.Utils;
 
 /// Represents a class type.
-public final class ClassDescriptor implements SpecializedTypeDescriptor {
+public final class ClassDescriptor implements SpecializedTypeDescriptor, DerivableDescriptor {
 
     @Stable
     private final ClassDescriptor outer;
@@ -36,6 +36,18 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     @Stable
     private Type javaType;
 
+    private ClassDescriptor(
+            ClassDescriptor outer,
+            Class<?> type,
+            byte flags,
+            SpecializedTypeDescriptor[] typeArguments
+    ) {
+        this.outer = outer;
+        this.type = type;
+        this.typeArguments = typeArguments;
+        this.flags = flags;
+    }
+
     /// Creates a new [ClassDescriptor].
     ///
     /// @param outer the outer class
@@ -53,10 +65,7 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
             flags |= HAS_OUTER;
             if (outer.partiallyRaw()) flags |= PARTIALLY_RAW;
         }
-        this.typeArguments = EMPTY_ARRAY;
-        this.outer = outer;
-        this.type = type;
-        this.flags = flags;
+        this(outer, type, flags, EMPTY_ARRAY);
     }
 
     /// Creates a new [ClassDescriptor].
@@ -75,13 +84,10 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         if (outer != null) flags |= HAS_OUTER;
         var array = new SpecializedTypeDescriptor[typeArguments.length];
         System.arraycopy(typeArguments, 0, array, 0, typeArguments.length);
-        this.typeArguments = array;
         if ((outer != null && outer.partiallyRaw()) || partiallyRawArray(typeArguments)) {
             flags |= PARTIALLY_RAW;
         }
-        this.outer = outer;
-        this.type = type;
-        this.flags = flags;
+        this(outer, type, flags, array);
     }
 
     /// Creates a new [ClassDescriptor].
@@ -99,14 +105,10 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         var flags = DEFAULT;
         if (outer != null) flags |= HAS_OUTER;
 
-        this.typeArguments = new SpecializedTypeDescriptor[]{arg1};
         if ((outer != null && outer.partiallyRaw()) || SpecializedTypeUtils.partiallyRaw(arg1)) {
             flags |= PARTIALLY_RAW;
         }
-
-        this.outer = outer;
-        this.type = type;
-        this.flags = flags;
+        this(outer, type, flags, new SpecializedTypeDescriptor[]{arg1});
     }
 
     /// Creates a new [ClassDescriptor].
@@ -127,7 +129,6 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         var flags = DEFAULT;
         if (outer != null) flags |= HAS_OUTER;
 
-        this.typeArguments = new SpecializedTypeDescriptor[]{arg1, arg2};
         if (
                 (outer != null && outer.partiallyRaw())
                         || SpecializedTypeUtils.partiallyRaw(arg1)
@@ -136,9 +137,7 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
             flags |= PARTIALLY_RAW;
         }
 
-        this.outer = outer;
-        this.type = type;
-        this.flags = flags;
+        this(outer, type, flags, new SpecializedTypeDescriptor[]{arg1, arg2});
     }
 
     /// Creates a new [ClassDescriptor].
@@ -162,7 +161,6 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
         var flags = DEFAULT;
         if (outer != null) flags |= HAS_OUTER;
 
-        this.typeArguments = new SpecializedTypeDescriptor[]{arg1, arg2, arg3};
         if (
                 (outer != null && outer.partiallyRaw())
                         || SpecializedTypeUtils.partiallyRaw(arg1)
@@ -172,11 +170,8 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
             flags |= PARTIALLY_RAW;
         }
 
-        this.outer = outer;
-        this.type = type;
-        this.flags = flags;
+        this(outer, type, flags, new SpecializedTypeDescriptor[]{arg1, arg2, arg3});
     }
-
 
     /// Gets the outer type if it exists.
     ///
@@ -197,26 +192,20 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     /// @param index the index
     /// @return the type argument
     public SpecializedTypeDescriptor typeArgument(int index) {
-        Objects.checkIndex(index, typeArguments.length);
         if (isRaw()) {
             return ErasedType.instance();
         }
+        Objects.checkIndex(index, typeArguments.length);
         if (!hasTypeArguments()) {
             throw new IllegalArgumentException("Type " + type + " is not parameterized.");
         }
         return typeArguments[index];
     }
 
-    /// Sees the current descriptor as one of its super type.
-    ///
-    /// @param type the super type
-    /// @return the current descriptor as one of its super types
-    public ClassDescriptor asSuper(Class<?> type) {
-        if (type == this.type) return this;
-        if (superTypes == null) {
-            superTypes = Internal.generateSuperTypes(this.type, this);
-        }
-        return superTypes.get(type);
+    @Override
+    public Optional<ClassDescriptor> asSuper(Class<?> type) {
+        Utils.requireNonNull(type);
+        return Optional.ofNullable($asSuper(type));
     }
 
     @Override
@@ -280,6 +269,20 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor {
     /// @return the outer type
     public ClassDescriptor $outer() {
         return hasOuter() ? outer : null;
+    }
+
+    /// Sees the current descriptor as one of its super type. If this descriptor hasn't a representation for `type`,
+    /// this method will return null.
+    ///
+    /// @param type the super type
+    /// @return the current descriptor as one of its super types or null
+    public ClassDescriptor $asSuper(Class<?> type) {
+        Utils.requireNonNull(type);
+        if (type == this.type) return this;
+        if (superTypes == null) {
+            superTypes = Internal.generateSuperTypes(this.type, this);
+        }
+        return superTypes.get(type);
     }
 
     void joinArguments(StringBuilder builder) {

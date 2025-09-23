@@ -11,6 +11,9 @@ public final class SpecializedTypePassingHandler {
     /// Specialized type passed to constructor.
     private SpecializedTypeDescriptor constructorTypeArgs;
 
+    /// Descriptor passed by hidden classes to their lambda implementation.
+    private SpecializedTypeDescriptor lambdaPassedDescriptor;
+
     /// Field used to identify the class who pushed the argument.
     private Class<?> caller;
 
@@ -21,6 +24,14 @@ public final class SpecializedTypePassingHandler {
                 1
         );
 
+    }
+
+    /// Returns the current expected caller.
+    ///
+    /// @return the current expected caller
+    public static Class<?> methodCaller() {
+        var instance = instance();
+        return instance.caller;
     }
 
     /// Returns the type arguments for the current method. This method accepts a parameter representing the actualCaller
@@ -39,14 +50,6 @@ public final class SpecializedTypePassingHandler {
         return instance.caller == actualCaller ? args : null;
     }
 
-    /// Returns the current expected caller.
-    ///
-    /// @return the current expected caller
-    public static Class<?> methodCaller() {
-        var instance = instance();
-        return instance.caller;
-    }
-
     /// Returns the argument for the current constructor call.
     ///
     /// @return the argument for the current constructor call
@@ -54,6 +57,16 @@ public final class SpecializedTypePassingHandler {
         var instance = instance();
         var args = instance.constructorTypeArgs;
         instance.constructorTypeArgs = null;
+        return args;
+    }
+
+    /// Returns the argument for the current lambda impl method call.
+    ///
+    /// @return the argument for the current lambda impl method call.
+    public static SpecializedTypeDescriptor lambdaTypeArguments() {
+        var instance = instance();
+        var args = instance.lambdaPassedDescriptor;
+        instance.lambdaPassedDescriptor = null;
         return args;
     }
 
@@ -67,18 +80,25 @@ public final class SpecializedTypePassingHandler {
         instance.caller = caller;
     }
 
-    /// Pops the method type arguments.
-    public static void popMethodTypeArguments() {
-        var instance = instance();
-        instance.passedMethodTypeArgs = null;
-    }
-
     /// Pushes the type to the stack before a constructor call.
     ///
     /// @param arg the argument to push
     public static void pushConstructor(SpecializedTypeDescriptor arg) {
         var instance = instance();
         instance.constructorTypeArgs = arg;
+    }
+
+    /// Pushes the type to the stack before a lambda calls its impl method.
+    /// @param arg the argument to push
+    public static void pushLambda(SpecializedTypeDescriptor arg) {
+        var instance = instance();
+        instance.lambdaPassedDescriptor = arg;
+    }
+
+    /// Pops the method type arguments.
+    public static void popMethodTypeArguments() {
+        var instance = instance();
+        instance.passedMethodTypeArgs = null;
     }
 
     private static SpecializedTypePassingHandler instance() {

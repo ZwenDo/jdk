@@ -6,7 +6,7 @@ import java.util.Optional;
 import java.util.ptype.util.Utils;
 
 /// Supertype for all specialized types.
-public sealed interface SpecializedTypeDescriptor permits ArrayDescriptor, ClassDescriptor, ErasedType {
+public sealed interface SpecializedTypeDescriptor permits ClassDescriptor, ArrayDescriptor, ErasedType {
 
     /// Returns the [Type] representation of this [SpecializedTypeDescriptor].
     ///
@@ -26,15 +26,17 @@ public sealed interface SpecializedTypeDescriptor permits ArrayDescriptor, Class
 
     /// Gets the [SpecializedTypeDescriptor] from a given object.
     ///
-    /// @param holder the object containing the
-    /// @return the class descriptor
+    /// This method returns an empty optional if the `holder` is not specialized or if it is not a subtype of `type`, or
+    /// if the `holder` is a hidden class instance.
+    ///
+    /// @param holder the object containing the descriptor
+    /// @param type the type we want the returned descriptor to represent
+    /// @return the class descriptor or an empty optional
     @CompilerIntrinsic
-    static Optional<ClassDescriptor> from(Object holder) {
-        Utils.requireNonNull(holder);
-        var value = Internal.extractInformationField(holder);
-        if (value == null) return Optional.empty();
-        if (value.partiallyRaw()) return Optional.empty();
-        return Optional.of(value);
+    static Optional<ClassDescriptor> from(Object holder, Class<?> type) {
+        Utils.requireNonNull(type);
+        if (holder == null || type.isHidden()) return Optional.empty();
+        return SpecializedTypeUtils.filterErasedType(Internal.extractInformationField(holder));
     }
 
 }

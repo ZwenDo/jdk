@@ -53,16 +53,18 @@ public final class Internal {
     /// Generates the map containing the super types of a given specialized type.
     ///
     /// @param type     the type represented by this specialized type
-    /// @param concrete the concrete specialized type
+    /// @param concreteDescriptor the descriptor
     /// @return the map associating all the supertypes to their value
-    @SuppressWarnings("unchecked")
-    public static HashMap<Class<?>, ClassDescriptor> generateSuperTypes(Class<?> type, ClassDescriptor concrete) {
+    public static HashMap<Class<?>, ClassDescriptor> generateSuperTypes(
+            Class<?> type,
+            ClassDescriptor concreteDescriptor
+    ) {
         Utils.requireNonNull(type);
-        Utils.requireNonNull(concrete);
+        Utils.requireNonNull(concreteDescriptor);
         try {
             var method = SUPER_GENERATION_CACHE.get(type);
             var set = new HashSet<SuperTypeMapping>();
-            method.invokeExact(concrete, set);
+            method.invokeExact(concreteDescriptor, set);
             return HashMap.superTypeMap(set);
         } catch (Throwable e) {
             throw new RuntimeException(e);
