@@ -81,11 +81,7 @@ public final class HiddenClassDescriptor implements DerivedClassDescriptor {
             }
             superTypes = SuperDescriptorComputing.buildSuperMap(this);
         }
-        var result = superTypes.get(type);
-        if (result == null) {
-            throw new AssertionError("This hidden class does not derives " + type);
-        }
-        return result;
+        return superTypes.get(type);
     }
 
     void forEachDirectSuperType(BiConsumer<? super ClassDescriptor, ? super Boolean> action) {

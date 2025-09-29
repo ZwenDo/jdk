@@ -146,7 +146,7 @@ public sealed interface TypeDescriptor permits ArrayDescriptor, ClassDescriptor,
         Utils.requireNonNull(type);
         if (!(holder instanceof ClassDescriptorHolder h) || type.isHidden()) return null;
         var descriptor = h.$descriptor().viewAsSuper(type);
-        return !descriptor.properties().isFull() ? null : descriptor;
+        return descriptor == null || !descriptor.properties().isFull() ? null : descriptor;
     }
 
     /// Filters the partially raw descriptors

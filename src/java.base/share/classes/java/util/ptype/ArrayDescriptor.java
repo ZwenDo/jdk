@@ -17,12 +17,11 @@ public final class ArrayDescriptor implements TypeDescriptor {
     private Type javaType;
 
     @Stable
-    private final Properties properties;
+    private Properties properties;
 
     private ArrayDescriptor(TypeDescriptor componentType) {
         Utils.requireNonNull(componentType);
         this.componentType = componentType;
-        this.properties = componentType.properties();
     }
 
     /// Creates a new array type.
@@ -63,6 +62,9 @@ public final class ArrayDescriptor implements TypeDescriptor {
 
     @Override
     public Properties properties() {
+        if (properties == null) {
+            this.properties = componentType.properties();
+        }
         return properties;
     }
 

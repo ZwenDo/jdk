@@ -97,7 +97,7 @@ final class SuperDescriptorComputing {
         var captureStart = arguments.size();
 
         // this will add all the enclosing type arguments
-        addEnclosing(arguments, concrete, parameterizedType);
+        addEnclosingElements(arguments, concrete, parameterizedType);
 
         var classDescriptor = ClassDescriptor.of(
                 (Class<?>) parameterizedType.getRawType(),
@@ -127,7 +127,7 @@ final class SuperDescriptorComputing {
         return ErasedClassDescriptor.instance();
     }
 
-    private static void addEnclosing(
+    private static void addEnclosingElements(
             ArrayList<TypeDescriptor> arguments,
             ClassDescriptor concrete,
             Type type
@@ -143,16 +143,59 @@ final class SuperDescriptorComputing {
             default:
                 throw new AssertionError("Unexpected type: " + type);
         }
+        addNextEnclosingElement(arguments, concrete, type, asClass);
+    }
+
+    private static void addEnclosingClass(
+            ArrayList<TypeDescriptor> arguments,
+            ClassDescriptor concrete,
+            Type type
+    ) {
+        Class<?> asClass;
+        switch (type) {
+            case Class<?> clazz:
+                for (var typeParameter : clazz.getTypeParameters()) {
+                    var index = findDeclarationIndex(concrete.type(), typeParameter);
+                    arguments.add(concrete.argument(index));
+                }
+                asClass = clazz;
+                break;
+            case ParameterizedType parameterizedType:
+                for (var typeArgument : parameterizedType.getActualTypeArguments()) {
+                    arguments.add(mapType(concrete, typeArgument));
+                }
+                asClass = (Class<?>) parameterizedType.getRawType();
+                break;
+            default:
+                throw new AssertionError("Unexpected type: " + type);
+        }
+        addNextEnclosingElement(arguments, concrete, type, asClass);
+    }
+
+    private static void addNextEnclosingElement(
+            ArrayList<TypeDescriptor> arguments,
+            ClassDescriptor concrete,
+            Type type,
+            Class<?> asClass
+    ) {
+        if (asClass.accessFlags().contains(AccessFlag.STATIC)) return;
 
         if (asClass.getEnclosingMethod() != null) {
             addEnclosingMethod(arguments, concrete, asClass.getEnclosingMethod());
-        }
-        if (asClass.getEnclosingConstructor() != null) {
-            addEnclosingMethod(arguments, concrete, asClass.getEnclosingConstructor());
+            if (asClass.getEnclosingMethod().accessFlags().contains(AccessFlag.STATIC)) return;
         }
 
-        if ((type instanceof ParameterizedType parameterizedType) && parameterizedType.getOwnerType() != null) {
-            addEnclosing(arguments, concrete, parameterizedType.getOwnerType());
+        if (asClass.getEnclosingConstructor() != null) {
+            addEnclosingMethod(arguments, concrete, asClass.getEnclosingConstructor());
+            if (asClass.getEnclosingConstructor().accessFlags().contains(AccessFlag.STATIC)) return;
+        }
+
+        if (asClass.getEnclosingClass() != null) {
+            if ((type instanceof ParameterizedType parameterizedType) && parameterizedType.getOwnerType() != null) {
+                addEnclosingClass(arguments, concrete, parameterizedType.getOwnerType());
+            } else {
+                addEnclosingClass(arguments, concrete, asClass.getEnclosingClass());
+            }
         }
     }
 
@@ -186,12 +229,14 @@ final class SuperDescriptorComputing {
                 return currentIndex + i;
             }
         }
+        if (current.accessFlags().contains(AccessFlag.STATIC)) return -1;
+
         var newIndex = currentIndex + params.length;
         if (current.getEnclosingMethod() != null) {
-            return findDeclarationIndexInExecutable(newIndex, current.getEnclosingMethod(), argument);
+            return findDeclarationIndexInMethod(newIndex, current.getEnclosingMethod(), argument);
         }
         if (current.getEnclosingConstructor() != null) {
-            return findDeclarationIndexInExecutable(newIndex, current.getEnclosingConstructor(), argument);
+            return findDeclarationIndexInMethod(newIndex, current.getEnclosingConstructor(), argument);
         }
         // this should be after the enclosing method checks, as this can return a class even if we are directly inside
         // a method, while the opposite is not true.
@@ -202,7 +247,11 @@ final class SuperDescriptorComputing {
         return -1;
     }
 
-    private static int findDeclarationIndexInExecutable(int currentIndex, Executable current, TypeVariable<?> argument) {
+    private static int findDeclarationIndexInMethod(
+            int currentIndex,
+            Executable current,
+            TypeVariable<?> argument
+    ) {
         var params = current.getTypeParameters();
         for (int i = 0; i < params.length; i++) {
             if (params[i] == argument) {
@@ -210,21 +259,11 @@ final class SuperDescriptorComputing {
             }
         }
         var newIndex = currentIndex + params.length;
+        if (current.accessFlags().contains(AccessFlag.STATIC)) return -1;
         return findDeclarationIndexInClass(newIndex, current.getDeclaringClass(), argument);
     }
 
     //endregion
-
-    private static Class<?> typeToClass(Type type) {
-        switch (type) {
-            case Class<?> clazz:
-                return clazz;
-            case ParameterizedType parameterizedType:
-                return typeToClass(parameterizedType.getRawType());
-            default:
-                throw new AssertionError("Unexpected type: " + type);
-        }
-    }
 
     private static boolean shouldProcess(Class<?> type) {
         return type.isAnnotationPresent(Instrumented.class);

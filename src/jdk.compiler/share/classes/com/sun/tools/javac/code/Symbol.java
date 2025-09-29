@@ -1339,10 +1339,6 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
 
         public boolean isPermittedExplicit = false;
 
-        public VarSymbol descriptorField;
-
-        private byte hasPopulateSuperMethod;
-
         private record PermittedClassWithPos(Symbol permittedClass, int pos) {}
 
         public ClassSymbol(long flags, Name name, Type type, Symbol owner) {
@@ -1480,13 +1476,6 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
                     if (t.tsym == base) return true;
             }
             return false;
-        }
-
-        public boolean hasPopulateSuperMethod() {
-            if (hasPopulateSuperMethod == 0) {
-                hasPopulateSuperMethod = (byte) (TransParameterizedTypes.hasPopulateSuperMethod(this) ? 1 : -1);
-            }
-            return hasPopulateSuperMethod == 1;
         }
 
         /** Complete the elaboration of this symbol's definition.

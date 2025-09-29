@@ -31,7 +31,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     private Type javaType;
 
     @Stable
-    private final Properties properties;
+    private Properties properties;
 
     //endregion
 
@@ -49,12 +49,6 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         this.type = maskNullType(type);
         this.capturedTypeArgumentsStartIndex = capturedTypeArgumentsStartIndex;
         this.arguments = arguments;
-
-        var props = new Properties(
-                arguments != RAW_TYPE_ARGUMENTS,
-                true
-        );
-        this.properties = Properties.computeTransitiveFlags(arguments, props);
     }
 
     /// Creates a new raw [ClassDescriptor].
@@ -294,6 +288,13 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
 
     @Override
     public Properties properties() {
+        if (properties == null) {
+            var props = new Properties(
+                    arguments != RAW_TYPE_ARGUMENTS,
+                    true
+            );
+            this.properties = Properties.computeTransitiveFlags(arguments, props);
+        }
         return properties;
     }
 
@@ -321,18 +322,18 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     //endregion
 
     //region internal methods
-    @PrototypeInternal
     @Override
     public ClassDescriptor viewAsSuper(Class<?> type) {
         Utils.requireNonNull(type);
-        var result = superDescriptor(type);
-        if (result == null) {
-            throw new AssertionError("This hidden class does not derives " + type);
-        }
-        return result;
+        return superDescriptor(type);
     }
 
-    TypeDescriptor argument(int index) {
+    /// Gets the argument at the given index
+    ///
+    /// @param index the index
+    /// @return the argument at the index
+    @PrototypeInternal
+    public TypeDescriptor argument(int index) {
         Utils.checkIndex(index, arguments.length);
         return arguments[index];
     }
