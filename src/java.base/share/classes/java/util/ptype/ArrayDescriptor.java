@@ -6,40 +6,38 @@ import sun.reflect.generics.reflectiveObjects.GenericArrayTypeImpl;
 import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.util.ptype.util.Utils;
 
 /// Represents an array type.
-public final class ArrayDescriptor implements SpecializedTypeDescriptor {
+public final class ArrayDescriptor implements TypeDescriptor {
 
     @Stable
-    private final SpecializedTypeDescriptor componentType;
-
-    /// 1 -> true \
-    /// -1 -> false
-    @Stable
-    private final byte partiallyRaw;
+    private final TypeDescriptor componentType;
 
     @Stable
     private Type javaType;
 
-    private ArrayDescriptor(SpecializedTypeDescriptor componentType) {
+    @Stable
+    private final Properties properties;
+
+    private ArrayDescriptor(TypeDescriptor componentType) {
         Utils.requireNonNull(componentType);
         this.componentType = componentType;
-        this.partiallyRaw = (byte) (SpecializedTypeUtils.partiallyRaw(componentType) ? 1 : -1);
+        this.properties = componentType.properties();
     }
 
     /// Creates a new array type.
     ///
     /// @param componentType the component type
-    /// @return the created type or [ErasedType] if the component type is erased
-    public static SpecializedTypeDescriptor of(SpecializedTypeDescriptor componentType) {
-        return componentType == ErasedType.instance() ? ErasedType.instance() : new ArrayDescriptor(componentType);
+    /// @return the created type or [ErasedClassDescriptor] if the component type is erased
+    @PrototypeInternal
+    public static TypeDescriptor of(TypeDescriptor componentType) {
+        return componentType == ErasedClassDescriptor.instance() ? ErasedClassDescriptor.instance() : new ArrayDescriptor(componentType);
     }
 
     /// Gets the component type of this array type.
     ///
     /// @return the component type
-    public SpecializedTypeDescriptor componentType() {
+    public TypeDescriptor componentType() {
         return componentType;
     }
 
@@ -63,13 +61,9 @@ public final class ArrayDescriptor implements SpecializedTypeDescriptor {
         return javaType;
     }
 
-    boolean partiallyRaw() {
-        return partiallyRaw == 1;
-    }
-
     @Override
-    public String toString() {
-        return SpecializedTypeUtils.stringify(this);
+    public Properties properties() {
+        return properties;
     }
 
     @Override
@@ -82,6 +76,11 @@ public final class ArrayDescriptor implements SpecializedTypeDescriptor {
     @Override
     public int hashCode() {
         return componentType.hashCode();
+    }
+
+    @Override
+    public String toString() {
+        return TypeDescriptorUtils.stringify(this);
     }
 
 }

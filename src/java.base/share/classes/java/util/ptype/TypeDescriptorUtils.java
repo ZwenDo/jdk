@@ -2,23 +2,22 @@ package java.util.ptype;
 
 import jdk.internal.misc.VM;
 
-import java.util.Optional;
-import java.util.ptype.util.Utils;
-
-/// Class providing operations on [SpecializedTypes][SpecializedTypeDescriptor].
-public final class SpecializedTypeUtils {
+final class TypeDescriptorUtils {
 
     //region Stringify
-    static String stringify(SpecializedTypeDescriptor type) {
+    static String stringify(TypeDescriptor type) {
         Utils.requireNonNull(type);
-        var builder = new StringBuilder();
+        return stringify(new StringBuilder(), type);
+    }
+
+    static String stringify(StringBuilder builder, TypeDescriptor type) {
+        Utils.requireNonNull(type);
+        Utils.requireNonNull(builder);
         appendToBuilder(builder, type);
         return builder.toString();
     }
 
-    static void appendToBuilder(StringBuilder builder, SpecializedTypeDescriptor type) {
-        Utils.requireNonNull(builder);
-        Utils.requireNonNull(type);
+    private static void appendToBuilder(StringBuilder builder, TypeDescriptor type) {
         switch (type) {
             case ArrayDescriptor arrayDescriptor:
                 appendToBuilder(builder, arrayDescriptor.componentType());
@@ -38,57 +37,63 @@ public final class SpecializedTypeUtils {
                     break;
                 }
 
-                if (!classDescriptor.hasTypeArguments()) break;
+                if (classDescriptor.hasTypeArguments()) {
+                    builder.append('<');
+                    classDescriptor.forEahTypeArgument(new BiConsumer<TypeDescriptor, Boolean>() {
+                        @Override
+                        public void accept(TypeDescriptor descriptor, Boolean hasNext) {
+                            appendToBuilder(builder, descriptor);
+                            if (hasNext) {
+                                builder.append(", ");
+                            }
+                        }
+                    });
+                    builder.append('>');
+                }
 
-                builder.append('<');
-                classDescriptor.joinArguments(builder);
-                builder.append('>');
+                if (classDescriptor.hasCapture()) {
+                    builder.append(" (");
+                    classDescriptor.forEachCapture(new BiConsumer<TypeDescriptor, Boolean>() {
+                        @Override
+                        public void accept(TypeDescriptor descriptor, Boolean hasNext) {
+                            appendToBuilder(builder, descriptor);
+                            if (hasNext) {
+                                builder.append(", ");
+                            }
+                        }
+                    });
+                    builder.append(')');
+                }
 
                 break;
-            case ErasedType _:
-                builder.append("?");
+            case ErasedClassDescriptor _:
+                builder.append("*erased*");
                 break;
-        }
-    }
-
-    static void joinSpecializedTypeArray(StringBuilder builder, SpecializedTypeDescriptor[] array) {
-        for (int i = 0; i < array.length; i++) {
-            appendToBuilder(builder, array[i]);
-            if (i + 1 < array.length) {
-                builder.append(", ");
-            }
         }
     }
     //endregion
 
-    static boolean partiallyRaw(SpecializedTypeDescriptor descriptor) {
-        Utils.requireNonNull(descriptor);
-        switch (descriptor) {
-            case ArrayDescriptor arrayDescriptor:
-                return arrayDescriptor.partiallyRaw();
-            case ClassDescriptor classDescriptor:
-                return classDescriptor.partiallyRaw();
-            case ErasedType _:
-                return true;
-        }
-    }
-
     //region Type Verification
 
-    /// Tests whether a given object has the expected [SpecializedTypeDescriptor] and returns it. This method will print an error
+    /// Tests whether a given object has the expected [TypeDescriptor] and returns it. This method will print an error
     /// if the `obj` is not a subtype of the `expected` specialized type.
     ///
-    /// @param obj the object to test
+    /// @param obj      the object to test
     /// @param expected the expected type
     /// @return the object
     public static Object checkCast(
             Object obj,
-            SpecializedTypeDescriptor expected
+            TypeDescriptor expected
     ) {
         Utils.requireNonNull(expected);
         if (!VM.isBooted()) return obj;
 
         if (obj == null) return null;
+        var actual = obj instanceof ClassDescriptorHolder holder ? holder.$descriptor() : null;
+
+        if (actual == null) {
+            return obj;
+        }
 
         if (!isInstance(obj, expected)) {
             System.err.println(errorMessage(obj, expected));
@@ -97,7 +102,7 @@ public final class SpecializedTypeUtils {
         return obj;
     }
 
-    private static boolean isInstance(Object obj, SpecializedTypeDescriptor expected) {
+    private static boolean isInstance(Object obj, TypeDescriptor expected) {
         return false;
 //        switch (expected) {
 //            // var cast = (A<String>.B<Integer>) obj;
@@ -143,16 +148,16 @@ public final class SpecializedTypeUtils {
 //        }
     }
 
-    private static boolean validate(Object obj, SpecializedTypeDescriptor expected, Class<?> supertype) {
+    private static boolean validate(Object obj, TypeDescriptor expected, Class<?> supertype) {
         var objClass = obj.getClass();
-        var value = Internal.extractInformationField(obj);
+        var value = extractInformationField(obj);
         if (value == null) {
             return supertype.isAssignableFrom(objClass);
         }
         return isAssignable(expected, value);
     }
 
-    private static String errorMessage(Object obj, SpecializedTypeDescriptor expected) {
+    private static String errorMessage(Object obj, TypeDescriptor expected) {
         var objClass = obj.getClass();
         if (objClass.isAnonymousClass()) {
             var interfaces = objClass.getInterfaces();
@@ -161,7 +166,7 @@ public final class SpecializedTypeUtils {
 
         var builder = new StringBuilder();
 
-        var type = Internal.extractInformationField(objClass);
+        var type = extractInformationField(objClass);
         if (type != null) {
             appendToBuilder(builder, type);
         } else {
@@ -173,23 +178,17 @@ public final class SpecializedTypeUtils {
         return builder.toString();
     }
 
-    private static boolean isAssignable(SpecializedTypeDescriptor expected, SpecializedTypeDescriptor actual) {
+    private static boolean isAssignable(TypeDescriptor expected, TypeDescriptor actual) {
         return false;
+    }
+
+    private static ClassDescriptor extractInformationField(Object object) {
+        return null;
     }
     //endregion
 
-    /// Utility method that filters out erased types to return only fully specialized types to users.
-    ///
-    /// @param type the type to filter
-    /// @return the filtered type or empty if the type is erased
-    /// @param <T> the type of the specialized type descriptor
-    public static <T extends SpecializedTypeDescriptor> Optional<T> filterErasedType(T type) {
-        if (type == null) return Optional.empty();
-        return partiallyRaw(type) ? Optional.empty() : Optional.of(type);
-    }
-
-
-    private SpecializedTypeUtils() {
+    private TypeDescriptorUtils() {
         throw new AssertionError();
     }
+
 }

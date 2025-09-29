@@ -34,7 +34,7 @@ import java.util.Objects;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.StructureViolationException;
 import java.util.concurrent.locks.LockSupport;
-import java.util.ptype.SpecializedTypePassingHandler;
+import java.util.ptype.TypeDescriptorPassingHandler;
 
 import jdk.internal.event.ThreadSleepEvent;
 import jdk.internal.misc.TerminatingThreadLocal;
@@ -245,7 +245,7 @@ public class Thread implements Runnable {
         volatile int priority;
         volatile boolean daemon;
         volatile int threadStatus;
-        private final SpecializedTypePassingHandler stpHandler = new SpecializedTypePassingHandler();
+        private final TypeDescriptorPassingHandler stpHandler = new TypeDescriptorPassingHandler();
 
         // This map is maintained by the ThreadLocal class
         ThreadLocal.ThreadLocalMap terminatingThreadLocals;
@@ -276,7 +276,7 @@ public class Thread implements Runnable {
     /// Gets the specialized type passing handler.
     ///
     /// @return the specialized type passing handler
-    public SpecializedTypePassingHandler stpHandler() {
+    public TypeDescriptorPassingHandler stpHandler() {
         return holder.stpHandler;
     }
 

@@ -1,20 +1,33 @@
-package java.util.ptype.util;
+package java.util.ptype;
+
+import jdk.internal.vm.annotation.Stable;
 
 import java.util.NoSuchElementException;
 
 /// HashSet.
 /// @param <E> the type of elements maintained by this set
-public final class HashSet<E> {
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private Node<E>[] content = (Node<E>[]) new Node[64];
+@PrototypeInternal
+final class HashSet<E> {
+
+    @SuppressWarnings({"unchecked"})
+    private Node<E>[] content = (Node<E>[]) SENTINEL;
 
     private int size;
 
     private int modCount;
 
+    @Stable
+    private final Function<? super E, Object> keyExtractor;
+
     /// Creates a new, empty set.
+    @SuppressWarnings("unchecked")
     public HashSet() {
+        this((Function<? super E, Object>) DEFAULT_EXTRACTOR);
+    }
+
+    public HashSet(Function<? super E, Object> keyExtractor) {
+        this.keyExtractor = keyExtractor;
     }
 
     /// Adds an element to the set if it is not already present. If the element is already present, the existing element
@@ -29,7 +42,8 @@ public final class HashSet<E> {
             modCount++;
         }
 
-        var hash = element.hashCode() & (content.length - 1);
+        var compared = keyExtractor.apply(element);
+        var hash = compared.hashCode() & (content.length - 1);
         var bucket = content[hash];
 
         if (bucket == null) {
@@ -41,7 +55,7 @@ public final class HashSet<E> {
 
         var current = bucket;
         while (true) {
-            if (element.equals(current.value)) {
+            if (compared.equals(keyExtractor.apply(current.value))) {
                 return current.value;
             }
             if (current.next == null) {
@@ -54,11 +68,36 @@ public final class HashSet<E> {
         }
     }
 
+    void addAll(HashSet<E> other) {
+        Utils.requireNonNull(other);
+        for (var it = other.iterator(); it.hasNext();) {
+            add(it.next());
+        }
+    }
+
     /// Returns the number of elements in the set.
     ///
     /// @return the number of elements in the set
     public int size() {
         return size;
+    }
+
+    public boolean isEmpty() {
+        return size == 0;
+    }
+
+    @Override
+    public String toString() {
+        var builder = new StringBuilder();
+        builder.append("{");
+        for (var it = iterator(); it.hasNext();) {
+            builder.append(it.next());
+            if (it.hasNext()) {
+                builder.append(", ");
+            }
+        }
+        builder.append("}");
+        return builder.toString();
     }
 
     /// Returns an iterator over the elements in the set. The elements are returned in no particular order.
@@ -107,8 +146,13 @@ public final class HashSet<E> {
         };
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private void resize() {
-        @SuppressWarnings({"unchecked", "rawtypes"})
+        if (content == SENTINEL) {
+            content = (Node<E>[]) new Node[16];
+            return;
+        }
+
         var newArray = (Node<E>[]) new Node[content.length * 2];
         for (var node : content) { // iterate through all buckets
             if (node == null) continue;
@@ -143,5 +187,15 @@ public final class HashSet<E> {
             this.value = value;
         }
     }
+
+    @SuppressWarnings({"rawtypes"})
+    private static final Node<?>[] SENTINEL = (Node<?>[]) new Node[0];
+
+    private static final Function<?, Object> DEFAULT_EXTRACTOR = new Function<Object, Object>() {
+        @Override
+        public Object apply(Object input) {
+            return input;
+        }
+    };
 
 }

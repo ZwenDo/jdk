@@ -217,16 +217,22 @@ public class Symtab {
     public final Type specializedTypeDescriptorType;
     public final Type methodDescriptorType;
     public final Type classDescriptorType;
-    public final Type erasedTypeType;
+    public final Type hiddenClassDescriptorType;
+    public final Type derivedClassDescriptorType;
+    public final Type classDescriptorHolderType;
+    public final Type typeDescriptorAccessorType;
+    public final Type lambdaDescriptorType;
+    public final Type lambdaDescriptorComputeSuperType;
+    public final Type erasedClassDescriptorType;
     public final Type arrayDescriptorType;
-    public final Type specializedTypeUtilsType;
-    public final Type specializedTypePassingHandleType;
+    public final Type typeDescriptorPassingHandlerType;
     public final Type specializedTypeHashSetType;
-    public final Type stackWalkerType;
     public final Type compilerIntrinsicType;
     public final Type optionalType;
-    public final Type constantSpecializedTypesType;
+    public final Type constantTypeDescriptorsType;
     public final Type superTypeMappingType;
+    public final Type instrumentedAnnotationType;
+    public final Type prototypeInternalAnnotationType;
 
     public final Type stringConcatFactory;
     public final Type repeatableType;
@@ -622,19 +628,25 @@ public class Symtab {
         nativeHeaderType = enterClass("java.lang.annotation.Native");
         lambdaMetafactory = enterClass("java.lang.invoke.LambdaMetafactory");
 
-        specializedTypeDescriptorType = enterClass("java.util.ptype.SpecializedTypeDescriptor");
+        specializedTypeDescriptorType = enterClass("java.util.ptype.TypeDescriptor");
         methodDescriptorType = enterClass("java.util.ptype.MethodDescriptor");
         classDescriptorType = enterClass("java.util.ptype.ClassDescriptor");
-        erasedTypeType = enterClass("java.util.ptype.ErasedType");
+        hiddenClassDescriptorType = enterClass("java.util.ptype.HiddenClassDescriptor");
+        derivedClassDescriptorType = enterClass("java.util.ptype.DerivedClassDescriptor");
+        classDescriptorHolderType = enterClass("java.util.ptype.ClassDescriptorHolder");
+        typeDescriptorAccessorType = enterClass("java.util.ptype.TypeDescriptorAccessor");
+        lambdaDescriptorType = enterClass("java.util.ptype.LambdaDescriptor");
+        lambdaDescriptorComputeSuperType = enterClass("java.util.ptype.LambdaDescriptor$LambdaComputeSuperHandle");
+        erasedClassDescriptorType = enterClass("java.util.ptype.ErasedClassDescriptor");
         arrayDescriptorType = enterClass("java.util.ptype.ArrayDescriptor");
-        specializedTypeUtilsType = enterClass("java.util.ptype.SpecializedTypeUtils");
-        specializedTypePassingHandleType = enterClass("java.util.ptype.SpecializedTypePassingHandler");
-        specializedTypeHashSetType = enterClass("java.util.ptype.util.HashSet");
-        stackWalkerType = enterClass("java.lang.StackWalker");
+        typeDescriptorPassingHandlerType = enterClass("java.util.ptype.TypeDescriptorPassingHandler");
+        specializedTypeHashSetType = enterClass("java.util.ptype.HashSet");
         compilerIntrinsicType = enterClass("java.lang.annotation.CompilerIntrinsic");
         optionalType = enterClass("java.util.Optional");
-        constantSpecializedTypesType = enterClass("java.util.ptype.ConstantSpecializedTypes");
-        superTypeMappingType = enterClass("java.util.ptype.SuperTypeMapping");
+        constantTypeDescriptorsType = enterClass("java.util.ptype.ConstantTypeDescriptors");
+        superTypeMappingType = enterClass("java.util.ptype.ComputeSuperFunction$SuperTypeMapping");
+        instrumentedAnnotationType = enterClass("java.util.ptype.Instrumented");
+        prototypeInternalAnnotationType = enterClass("java.util.ptype.PrototypeInternal");
 
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");
@@ -673,16 +685,21 @@ public class Symtab {
 
         synthesizeEmptyInterfaceIfMissing(specializedTypeDescriptorType);
         synthesizeEmptyInterfaceIfMissing(classDescriptorType);
-        synthesizeEmptyInterfaceIfMissing(erasedTypeType);
+        synthesizeEmptyInterfaceIfMissing(hiddenClassDescriptorType);
+        synthesizeEmptyInterfaceIfMissing(derivedClassDescriptorType);
+        synthesizeEmptyInterfaceIfMissing(classDescriptorHolderType);
+        synthesizeEmptyInterfaceIfMissing(typeDescriptorAccessorType);
+        synthesizeEmptyInterfaceIfMissing(lambdaDescriptorType);
+        synthesizeEmptyInterfaceIfMissing(lambdaDescriptorComputeSuperType);
+        synthesizeEmptyInterfaceIfMissing(erasedClassDescriptorType);
         synthesizeEmptyInterfaceIfMissing(arrayDescriptorType);
-        synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsType);
-        synthesizeEmptyInterfaceIfMissing(specializedTypePassingHandleType);
-        synthesizeEmptyInterfaceIfMissing(specializedTypeUtilsType);
-        synthesizeEmptyInterfaceIfMissing(stackWalkerType);
+        synthesizeEmptyInterfaceIfMissing(typeDescriptorPassingHandlerType);
         synthesizeEmptyInterfaceIfMissing(specializedTypeHashSetType);
         synthesizeEmptyInterfaceIfMissing(compilerIntrinsicType);
-        synthesizeEmptyInterfaceIfMissing(constantSpecializedTypesType);
+        synthesizeEmptyInterfaceIfMissing(constantTypeDescriptorsType);
         synthesizeEmptyInterfaceIfMissing(superTypeMappingType);
+        synthesizeEmptyInterfaceIfMissing(instrumentedAnnotationType);
+        synthesizeEmptyInterfaceIfMissing(prototypeInternalAnnotationType);
 
         // Enter a synthetic class that is used to mark internal
         // proprietary classes in ct.sym.  This class does not have a

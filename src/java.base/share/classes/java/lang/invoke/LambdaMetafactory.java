@@ -29,7 +29,7 @@ import java.io.Serializable;
 import java.util.Arrays;
 import java.lang.reflect.Array;
 import java.util.Objects;
-import java.util.ptype.SpecializedTypePassingHandler;
+import java.util.ptype.TypeDescriptorPassingHandler;
 
 import jdk.internal.vm.annotation.AOTSafeClassInitializer;
 
@@ -269,6 +269,11 @@ public final class LambdaMetafactory {
      */
     public static final int FLAG_BRIDGES = 1 << 2;
 
+    /**
+     * Flag for {@link #altMetafactory} indicating the lambda needs specialisation.
+     */
+    public static final int FLAG_SPECIALISATION = 1 << 3;
+
     private static final Class<?>[] EMPTY_CLASS_ARRAY = new Class<?>[0];
     private static final MethodType[] EMPTY_MT_ARRAY = new MethodType[0];
 
@@ -342,9 +347,8 @@ public final class LambdaMetafactory {
                                        MethodHandle implementation,
                                        MethodType dynamicMethodType)
             throws LambdaConversionException {
-        var method = SpecializedTypePassingHandler.methodTypeArguments(null);
-        var argsCaller = SpecializedTypePassingHandler.methodCaller();
-        var constructor = SpecializedTypePassingHandler.constructorTypeArguments();
+        var method = TypeDescriptorPassingHandler.methodTypeArguments();
+        var constructor = TypeDescriptorPassingHandler.constructorTypeArguments();
         try {
             AbstractValidatingLambdaMetafactory mf;
             mf = new InnerClassLambdaMetafactory(Objects.requireNonNull(caller),
@@ -355,12 +359,14 @@ public final class LambdaMetafactory {
                     Objects.requireNonNull(dynamicMethodType),
                     false,
                     EMPTY_CLASS_ARRAY,
-                    EMPTY_MT_ARRAY);
+                    EMPTY_MT_ARRAY,
+                    false,
+                    false);
             mf.validateMetafactoryArgs();
             return mf.buildCallSite();
         } finally {
-            SpecializedTypePassingHandler.pushMethod(method, argsCaller);
-            SpecializedTypePassingHandler.pushConstructor(constructor);
+            TypeDescriptorPassingHandler.pushMethod(method);
+            TypeDescriptorPassingHandler.pushConstructor(constructor);
         }
     }
 
@@ -496,9 +502,8 @@ public final class LambdaMetafactory {
                                           MethodType factoryType,
                                           Object... args)
             throws LambdaConversionException {
-        var method = SpecializedTypePassingHandler.methodTypeArguments(null);
-        var argsCaller = SpecializedTypePassingHandler.methodCaller();
-        var constructor = SpecializedTypePassingHandler.constructorTypeArguments();
+        var method = TypeDescriptorPassingHandler.methodTypeArguments();
+        var constructor = TypeDescriptorPassingHandler.constructorTypeArguments();
 
         try {
             Objects.requireNonNull(caller);
@@ -532,6 +537,13 @@ public final class LambdaMetafactory {
                     argIndex += altMethodCount;
                 }
             }
+
+            boolean needsSpecialisation = (flags & FLAG_SPECIALISATION) != 0;
+            boolean constantSpecialisation = false;
+            if (needsSpecialisation) {
+                constantSpecialisation = extractArg(args, argIndex++, Integer.class) == 1;
+            }
+
             if (argIndex < args.length) {
                 throw new IllegalArgumentException("too many arguments");
             }
@@ -556,12 +568,14 @@ public final class LambdaMetafactory {
                     dynamicMethodType,
                     isSerializable,
                     altInterfaces,
-                    altMethods);
+                    altMethods,
+                    needsSpecialisation,
+                    constantSpecialisation);
             mf.validateMetafactoryArgs();
             return mf.buildCallSite();
         } finally {
-            SpecializedTypePassingHandler.pushMethod(method, argsCaller);
-            SpecializedTypePassingHandler.pushConstructor(constructor);
+            TypeDescriptorPassingHandler.pushMethod(method);
+            TypeDescriptorPassingHandler.pushConstructor(constructor);
         }
     }
 

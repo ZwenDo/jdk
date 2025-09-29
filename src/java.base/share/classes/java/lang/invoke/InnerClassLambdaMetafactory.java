@@ -40,6 +40,7 @@ import java.lang.classfile.TypeKind;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.MethodTypeDesc;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -49,6 +50,8 @@ import static java.lang.classfile.ClassFile.*;
 import java.lang.classfile.attribute.ExceptionsAttribute;
 import java.lang.classfile.constantpool.ClassEntry;
 import java.lang.classfile.constantpool.ConstantPoolBuilder;
+import java.util.ptype.*;
+import java.util.ptype.TypeDescriptor;
 
 import static java.lang.constant.ConstantDescs.*;
 import static java.lang.invoke.MethodHandleNatives.Constants.NESTMATE_CLASS;
@@ -69,6 +72,17 @@ import sun.invoke.util.Wrapper;
     private static final @Stable String[] ARG_NAME_CACHE = {"arg$1", "arg$2", "arg$3", "arg$4", "arg$5", "arg$6", "arg$7", "arg$8"};
     private static final ClassDesc[] EMPTY_CLASSDESC_ARRAY = ConstantUtils.EMPTY_CLASSDESC;
 
+    private static final String DESCRIPTOR_FIELD = "$typeArguments";
+    private static final String GET_DESCRIPTOR_METHOD = "$descriptor";
+    private static final ClassDesc HIDDEN_CLASS_DESCRIPTOR_DESC = ClassDesc.of(HiddenClassDescriptor.class.getCanonicalName());
+    private static final ClassDesc DERIVED_CLASS_DESCRIPTOR_DESC = ClassDesc.of(DerivedClassDescriptor.class.getCanonicalName());
+    private static final ClassDesc CLASS_DESCRIPTOR_HOLDER_DESC = ClassDesc.of(ClassDescriptorHolder.class.getCanonicalName());
+    private static final ClassDesc PASSING_HANDLER_DESC = ClassDesc.of(TypeDescriptorPassingHandler.class.getCanonicalName());
+    private static final MethodTypeDesc CTOR_TYPE_ARGUMENTS = MethodTypeDesc.of(HIDDEN_CLASS_DESCRIPTOR_DESC);
+    private static final MethodTypeDesc DESCRIPTOR_GETTER = MethodTypeDesc.of(DERIVED_CLASS_DESCRIPTOR_DESC);
+    private static final String CTOR_TYPE_ARGUMENTS_NAME = "hiddenClassTypeArguments";
+    private static final MethodHandle HIDDEN_CLASS_TYPE_ARGUMENTS;
+
     // For dumping generated classes to disk, for debugging purposes
     private static final ClassFileDumper lambdaProxyClassFileDumper;
 
@@ -83,6 +97,17 @@ import sun.invoke.util.Wrapper;
 
         final String disableEagerInitializationKey = "jdk.internal.lambda.disableEagerInitialization";
         disableEagerInitialization = Boolean.getBoolean(disableEagerInitializationKey);
+
+        try {
+            var pop = MethodHandles.lookup().findStatic(
+                    TypeDescriptorPassingHandler.class,
+                    "hiddenClassTypeArguments",
+                    MethodType.methodType(HiddenClassDescriptor.class)
+            );
+            HIDDEN_CLASS_TYPE_ARGUMENTS = MethodHandles.dropReturn(pop);
+        } catch (NoSuchMethodException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     // See context values in AbstractValidatingLambdaMetafactory
@@ -96,6 +121,8 @@ import sun.invoke.util.Wrapper;
     private final ConstantPoolBuilder pool = ConstantPoolBuilder.of();
     private final ClassEntry lambdaClassEntry;       // Class entry for the generated class "X$$Lambda$1"
     private final boolean useImplMethodHandle;       // use MethodHandle invocation instead of symbolic bytecode invocation
+    private final boolean constantSpecialisation;
+    private final boolean needsSpecialisation;
 
     /**
      * General meta-factory constructor, supporting both standard cases and
@@ -131,6 +158,8 @@ import sun.invoke.util.Wrapper;
      *                      should implement.
      * @param altMethods Method types for additional signatures to be
      *                   implemented by invoking the implementation method
+     * @param needsSpecialisation whether the hidden class needs to be specialized
+     * @param constantSpecialisation whether the specialisation is constant
      * @throws LambdaConversionException If any of the meta-factory protocol
      *         invariants are violated
      */
@@ -142,7 +171,10 @@ import sun.invoke.util.Wrapper;
                                        MethodType dynamicMethodType,
                                        boolean isSerializable,
                                        Class<?>[] altInterfaces,
-                                       MethodType[] altMethods)
+                                       MethodType[] altMethods,
+                                       boolean needsSpecialisation,
+                                       boolean constantSpecialisation
+    )
             throws LambdaConversionException {
         super(caller, factoryType, interfaceMethodName, interfaceMethodType,
               implementation, dynamicMethodType,
@@ -164,6 +196,7 @@ import sun.invoke.util.Wrapper;
                                !VerifyAccess.isSamePackage(targetClass, implInfo.getDeclaringClass())) ||
                                implKind == MethodHandleInfo.REF_invokeSpecial ||
                                implKind == MethodHandleInfo.REF_invokeStatic && implClass.isHidden();
+        this.constantSpecialisation = constantSpecialisation;
         int parameterCount = factoryType.parameterCount();
         ClassDesc[] argDescs;
         MethodTypeDesc constructorTypeDesc;
@@ -179,6 +212,7 @@ import sun.invoke.util.Wrapper;
         }
         this.argDescs = argDescs;
         this.constructorTypeDesc = constructorTypeDesc;
+        this.needsSpecialisation = needsSpecialisation;
     }
 
     private static String argName(int i) {
@@ -223,10 +257,19 @@ import sun.invoke.util.Wrapper;
         } else {
             try {
                 MethodHandle mh = caller.findConstructor(innerClass, constructorType);
-                if (false) {
+                if (factoryType.parameterCount() == 0) {
                     // In the case of a non-capturing lambda, we optimize linkage by pre-computing a single instance
+                    if (!needsSpecialisation) {
+                        Object inst = mh.invokeBasic();
+                        return new ConstantCallSite(MethodHandles.constant(interfaceClass, inst));
+                    }
+                    if (!constantSpecialisation) {
+                        return new ConstantCallSite(mh.asType(factoryType));
+                    }
                     Object inst = mh.invokeBasic();
-                    return new ConstantCallSite(MethodHandles.constant(interfaceClass, inst));
+                    var get = MethodHandles.constant(interfaceClass, inst);
+                    var callSite = MethodHandles.foldArguments(get, HIDDEN_CLASS_TYPE_ARGUMENTS);
+                    return new ConstantCallSite(callSite);
                 } else {
                     return new ConstantCallSite(mh.asType(factoryType));
                 }
@@ -312,15 +355,33 @@ import sun.invoke.util.Wrapper;
             public void accept(ClassBuilder clb) {
                 clb.withFlags(ACC_SUPER | ACC_FINAL | ACC_SYNTHETIC)
                    .withInterfaceSymbols(interfaces);
+                if (needsSpecialisation) {
+                    var l = new ArrayList<>(interfaces);
+                    l.add(CLASS_DESCRIPTOR_HOLDER_DESC);
+                    clb.withInterfaceSymbols(l);
+                }
+
                 // Generate final fields to be filled in by constructor
                 for (int i = 0; i < argDescs.length; i++) {
                     clb.withField(argName(i), argDescs[i], ACC_PRIVATE | ACC_FINAL);
+                }
+
+                if (needsSpecialisation) {
+                    clb.withField(
+                            DESCRIPTOR_FIELD,
+                            HIDDEN_CLASS_DESCRIPTOR_DESC,
+                            ACC_PRIVATE | ACC_FINAL | ACC_TRANSIENT
+                    );
                 }
 
                 generateConstructor(clb);
 
                 if (factoryType.parameterCount() == 0 && disableEagerInitialization) {
                     generateClassInitializer(clb);
+                }
+
+                if (needsSpecialisation) {
+                    generateGetDescriptor(clb);
                 }
 
                 // Forward the SAM method
@@ -383,6 +444,21 @@ import sun.invoke.util.Wrapper;
     }
 
     /**
+     * Generate the getDescriptor method to access the descriptor from super interfaces.
+     */
+    private void generateGetDescriptor(ClassBuilder clb) {
+        clb.withMethodBody(GET_DESCRIPTOR_METHOD, DESCRIPTOR_GETTER, ACC_PUBLIC,
+                new Consumer<CodeBuilder>() {
+                    @Override
+                    public void accept(CodeBuilder cob) {
+                        cob.aload(0)
+                                        .getfield(pool.fieldRefEntry(lambdaClassEntry, pool.nameAndTypeEntry(DESCRIPTOR_FIELD, HIDDEN_CLASS_DESCRIPTOR_DESC)));
+                        cob.areturn();
+                    }
+                });
+    }
+
+    /**
      * Generate the constructor for the class
      */
     private void generateConstructor(ClassBuilder clb) {
@@ -393,6 +469,11 @@ import sun.invoke.util.Wrapper;
                     public void accept(CodeBuilder cob) {
                         cob.aload(0)
                            .invokespecial(CD_Object, INIT_NAME, MTD_void);
+                        if (needsSpecialisation) {
+                            cob.aload(0)
+                                .invokestatic(PASSING_HANDLER_DESC, CTOR_TYPE_ARGUMENTS_NAME, CTOR_TYPE_ARGUMENTS)
+                                .putfield(pool.fieldRefEntry(lambdaClassEntry, pool.nameAndTypeEntry(DESCRIPTOR_FIELD, HIDDEN_CLASS_DESCRIPTOR_DESC)));
+                        }
                         int parameterCount = factoryType.parameterCount();
                         for (int i = 0; i < parameterCount; i++) {
                             cob.aload(0)
@@ -512,6 +593,10 @@ import sun.invoke.util.Wrapper;
                 }
 
                 convertArgumentTypes(cob, methodType);
+
+                if (needsSpecialisation) {
+                    // TODO
+                }
 
                 if (useImplMethodHandle) {
                     MethodType mtype = implInfo.getMethodType();

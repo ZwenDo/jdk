@@ -812,6 +812,14 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         /** The owner of this functional expression. */
         public Symbol owner;
 
+        public SpecialisationKind specialisationKind;
+
+        public enum SpecialisationKind {
+            CONSTANT,
+            DYNAMIC,
+            ;
+        }
+
         public Type getDescriptorType(Types types) {
             return target != null ? types.findDescriptorType(target) : types.createErrorType(null);
         }

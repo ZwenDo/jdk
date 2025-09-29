@@ -1,15 +1,12 @@
-package java.util.ptype.util;
+package java.util.ptype;
 
 import jdk.internal.vm.annotation.Stable;
-
-import java.util.ptype.ClassDescriptor;
-import java.util.ptype.SuperTypeMapping;
 
 /// Immutable hashmap implementation.
 ///
 /// @param <K> the type of the keys
 /// @param <V> the type of the values
-public final class HashMap<K,V>  {
+final class HashMap<K,V>  {
 
     @Stable
     private final Object[] table;
@@ -20,7 +17,7 @@ public final class HashMap<K,V>  {
     /// Creates a new hashmap from the given entries.
     ///
     /// @param input the entries to populate the map
-    public HashMap(Object... input) {
+    private HashMap(Object... input) {
         if ((input.length & 1) != 0) {
             throw new IllegalArgumentException("length is odd");
         }
@@ -32,9 +29,9 @@ public final class HashMap<K,V>  {
 
         for (int i = 0; i < input.length; i += 2) {
             @SuppressWarnings("unchecked")
-            var k = Utils.requireNonNull((K) input[i]);
+            var k = java.util.ptype.Utils.requireNonNull((K) input[i]);
             @SuppressWarnings("unchecked")
-            var v = Utils.requireNonNull((V) input[i + 1]);
+            var v = java.util.ptype.Utils.requireNonNull((V) input[i + 1]);
             int idx = probe(k);
             if (idx >= 0) {
                 throw new IllegalArgumentException("duplicate key: " + k);
@@ -55,24 +52,55 @@ public final class HashMap<K,V>  {
     ///
     /// @param input the super type mappings
     /// @return the created hashmap
-    public static HashMap<Class<?>, ClassDescriptor> superTypeMap(HashSet<SuperTypeMapping> input) {
+    public static HashMap<Class<?>, ClassDescriptor> superTypeMap(HashSet<ClassDescriptor> input) {
         int len = 4 * input.size();
         len = (len + 1) & ~1; // ensure table is even length
         var table = new Object[len];
 
         for (var it = input.iterator(); it.hasNext();) {
-            var mapping = it.next();
-            int idx = probeStatic(mapping.superType(), table);
+            var descriptor = it.next();
+            int idx = probeStatic(descriptor.type(), table);
             if (idx >= 0) {
-                throw new IllegalArgumentException("duplicate key: " + mapping.superType());
+                throw new IllegalArgumentException("duplicate key: " + descriptor);
             } else {
                 int dest = -(idx + 1);
-                table[dest] = mapping.superType();
-                table[dest + 1] = mapping.superTypeDescriptor();
+                table[dest] = descriptor.type();
+                table[dest + 1] = descriptor;
             }
         }
 
         return new HashMap<>(input.size(), table);
+    }
+
+    public static <I, K, V> HashMap<K, V> of(I[] input, Function<I, K> keyMapper, Function<I, V> valueMapper) {
+        if ((input.length & 1) != 0) {
+            throw new IllegalArgumentException("length is odd");
+        }
+        var size = input.length >> 1;
+
+        int len = 2 * input.length;
+        len = (len + 1) & ~1; // ensure table is even length
+        var table = new Object[len];
+
+        for (int i = 0; i < input.length; i++) {
+            var k = keyMapper.apply(Utils.requireNonNull(input[i]));
+            var v = valueMapper.apply(Utils.requireNonNull(input[i + 1]));
+            int idx = probeStatic(k, table);
+            if (idx >= 0) {
+                throw new IllegalArgumentException("duplicate key: " + k);
+            } else {
+                int dest = -(idx + 1);
+                table[dest] = k;
+                table[dest + 1] = v;
+            }
+        }
+
+        return new HashMap<>(size, table);
+    }
+
+    @SuppressWarnings("unchecked")
+    static <K, V> HashMap<K, V> empty() {
+        return (HashMap<K, V>) EMPTY;
     }
 
     /// Gets the value associated to a given key
@@ -118,5 +146,7 @@ public final class HashMap<K,V>  {
             }
         }
     }
+
+    private static final HashMap<?, ?> EMPTY = new HashMap<>();
 
 }

@@ -1,4 +1,4 @@
-package java.util.ptype.util;
+package java.util.ptype;
 
 /// An iterator
 ///

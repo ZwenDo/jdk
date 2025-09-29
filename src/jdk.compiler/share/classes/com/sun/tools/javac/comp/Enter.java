@@ -104,7 +104,6 @@ public class Enter extends JCTree.Visitor {
     TypeEnvs typeEnvs;
     Modules modules;
     JCDiagnostic.Factory diags;
-    TransParameterizedTypes transParameterizedTypes;
 
     private final Todo todo;
 
@@ -142,7 +141,6 @@ public class Enter extends JCTree.Visitor {
         todo = Todo.instance(context);
         fileManager = context.get(JavaFileManager.class);
 
-        transParameterizedTypes = TransParameterizedTypes.instance(context);
         Options options = Options.instance(context);
         pkginfoOpt = PkgInfo.get(options);
         typeEnvs = TypeEnvs.instance(context);
@@ -502,10 +500,6 @@ public class Enter extends JCTree.Visitor {
         // table, to be retrieved later in memberEnter and attribution.
         Env<AttrContext> localEnv = classEnv(tree, env);
         typeEnvs.put(c, localEnv);
-
-        if (TransParameterizedTypes.hasNewGenerics(c)) {
-            c.flagForNewGenerics();
-        }
 
         // Fill out class fields.
         c.completer = Completer.NULL_COMPLETER; // do not allow the initial completer linger on.

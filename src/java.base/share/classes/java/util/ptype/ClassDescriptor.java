@@ -5,14 +5,12 @@ import jdk.internal.vm.annotation.Stable;
 import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
 import java.lang.reflect.Type;
-import java.util.Arrays;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.ptype.util.HashMap;
-import java.util.ptype.util.Utils;
 
 /// Represents a class type.
-public final class ClassDescriptor implements SpecializedTypeDescriptor, DerivableDescriptor {
+public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAccessor, DerivedClassDescriptor {
+
+    //region fields
 
     @Stable
     private final ClassDescriptor outer;
@@ -21,157 +19,207 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor, Derivab
     private final Class<?> type;
 
     @Stable
-    private final SpecializedTypeDescriptor[] typeArguments;
-
-    /// We always set the highest bit for stable
-    ///
-    /// 0x0000_0001 raw \
-    /// 0x0000_0010 has outer
-    @Stable
-    private final byte flags;
+    private final TypeDescriptor[] arguments;
 
     @Stable
-    private HashMap<Class<?>, ClassDescriptor> superTypes = null;
+    private final int capturedTypeArgumentsStartIndex;
+
+    @Stable
+    HashMap<Class<?>, ClassDescriptor> superTypes;
 
     @Stable
     private Type javaType;
 
+    @Stable
+    private final Properties properties;
+
+    //endregion
+
+    //region instantiation
+
     private ClassDescriptor(
-            ClassDescriptor outer,
             Class<?> type,
-            byte flags,
-            SpecializedTypeDescriptor[] typeArguments
+            int capturedTypeArgumentsStartIndex,
+            TypeDescriptor[] arguments
     ) {
-        this.outer = outer;
-        this.type = type;
-        this.typeArguments = typeArguments;
-        this.flags = flags;
+        Utils.requireNonNull(arguments);
+        Utils.checkIndex(capturedTypeArgumentsStartIndex, arguments.length + 1);
+
+        this.outer = null;
+        this.type = maskNullType(type);
+        this.capturedTypeArgumentsStartIndex = capturedTypeArgumentsStartIndex;
+        this.arguments = arguments;
+
+        var props = new Properties(
+                arguments != RAW_TYPE_ARGUMENTS,
+                true
+        );
+        this.properties = Properties.computeTransitiveFlags(arguments, props);
+    }
+
+    /// Creates a new raw [ClassDescriptor].
+    ///
+    /// @param type the type
+    /// @return the created descriptor
+    @PrototypeInternal
+    public static ClassDescriptor ofRaw(Class<?> type) {
+        return new ClassDescriptor(type, 0, RAW_TYPE_ARGUMENTS);
     }
 
     /// Creates a new [ClassDescriptor].
     ///
-    /// @param outer the outer class
-    /// @param type  the type
-    /// @param isRaw whether the type is raw or a regular class
-    public ClassDescriptor(
-            ClassDescriptor outer,
-            Class<?> type,
-            boolean isRaw
-    ) {
-        Utils.requireNonNull(type);
-        var flags = DEFAULT;
-        if (isRaw) flags |= IS_RAW;
-        if (outer != null) {
-            flags |= HAS_OUTER;
-            if (outer.partiallyRaw()) flags |= PARTIALLY_RAW;
-        }
-        this(outer, type, flags, EMPTY_ARRAY);
+    /// @param type the type
+    /// @return the created descriptor
+    @PrototypeInternal
+    public static ClassDescriptor of(Class<?> type) {
+        return new ClassDescriptor(type, 0, EMPTY_ARRAY);
     }
 
     /// Creates a new [ClassDescriptor].
     ///
-    /// @param outer         the outer class
-    /// @param type          the type
-    /// @param typeArguments the type arguments
-    public ClassDescriptor(
-            ClassDescriptor outer,
+    /// @param type         the type
+    /// @param captureStart the start index of the captured types
+    /// @param arg1         the first type argument
+    /// @return the created descriptor
+    @PrototypeInternal
+    public static ClassDescriptor of(
             Class<?> type,
-            SpecializedTypeDescriptor... typeArguments
+            int captureStart,
+            TypeDescriptor arg1
     ) {
-        Utils.requireNonNull(type);
-        Utils.requireNonNull(typeArguments);
-        var flags = DEFAULT;
-        if (outer != null) flags |= HAS_OUTER;
-        var array = new SpecializedTypeDescriptor[typeArguments.length];
-        System.arraycopy(typeArguments, 0, array, 0, typeArguments.length);
-        if ((outer != null && outer.partiallyRaw()) || partiallyRawArray(typeArguments)) {
-            flags |= PARTIALLY_RAW;
-        }
-        this(outer, type, flags, array);
-    }
-
-    /// Creates a new [ClassDescriptor].
-    ///
-    /// @param outer the outer class
-    /// @param type  the type
-    /// @param arg1  the first type argument
-    public ClassDescriptor(
-            ClassDescriptor outer,
-            Class<?> type,
-            SpecializedTypeDescriptor arg1
-    ) {
-        Utils.requireNonNull(type);
         Utils.requireNonNull(arg1);
-        var flags = DEFAULT;
-        if (outer != null) flags |= HAS_OUTER;
-
-        if ((outer != null && outer.partiallyRaw()) || SpecializedTypeUtils.partiallyRaw(arg1)) {
-            flags |= PARTIALLY_RAW;
-        }
-        this(outer, type, flags, new SpecializedTypeDescriptor[]{arg1});
+        Utils.checkIndex(captureStart, 2);
+        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1});
     }
 
     /// Creates a new [ClassDescriptor].
     ///
-    /// @param outer the outer class
-    /// @param type  the type
-    /// @param arg1  the first type argument
-    /// @param arg2  the second type argument
-    public ClassDescriptor(
-            ClassDescriptor outer,
+    /// @param type                 the type
+    /// @param captureStart         the start index of the captured types
+    /// @param arg1                 the first type argument
+    /// @param arg2                 the second type argument
+    /// @return the created descriptor
+    @PrototypeInternal
+    public static ClassDescriptor of(
             Class<?> type,
-            SpecializedTypeDescriptor arg1,
-            SpecializedTypeDescriptor arg2
+            int captureStart,
+            TypeDescriptor arg1,
+            TypeDescriptor arg2
     ) {
-        Utils.requireNonNull(type);
         Utils.requireNonNull(arg1);
         Utils.requireNonNull(arg2);
-        var flags = DEFAULT;
-        if (outer != null) flags |= HAS_OUTER;
-
-        if (
-                (outer != null && outer.partiallyRaw())
-                        || SpecializedTypeUtils.partiallyRaw(arg1)
-                        || SpecializedTypeUtils.partiallyRaw(arg2)
-        ) {
-            flags |= PARTIALLY_RAW;
-        }
-
-        this(outer, type, flags, new SpecializedTypeDescriptor[]{arg1, arg2});
+        Utils.checkIndex(captureStart, 3);
+        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1, arg2});
     }
 
     /// Creates a new [ClassDescriptor].
     ///
-    /// @param outer the outer class
-    /// @param type  the type
-    /// @param arg1  the first type argument
-    /// @param arg2  the second type argument
-    /// @param arg3  the third type argument
-    public ClassDescriptor(
-            ClassDescriptor outer,
+    /// @param type                 the type
+    /// @param captureStart         the start index of the captured types
+    /// @param arg1                 the first type argument
+    /// @param arg2                 the second type argument
+    /// @param arg3                 the third type argument
+    /// @return the created descriptor
+    @PrototypeInternal
+    public static ClassDescriptor of(
             Class<?> type,
-            SpecializedTypeDescriptor arg1,
-            SpecializedTypeDescriptor arg2,
-            SpecializedTypeDescriptor arg3
+            int captureStart,
+            TypeDescriptor arg1,
+            TypeDescriptor arg2,
+            TypeDescriptor arg3
     ) {
-        Utils.requireNonNull(type);
         Utils.requireNonNull(arg1);
         Utils.requireNonNull(arg2);
         Utils.requireNonNull(arg3);
-        var flags = DEFAULT;
-        if (outer != null) flags |= HAS_OUTER;
+        Utils.checkIndex(captureStart, 4);
+        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1, arg2, arg3});
+    }
 
-        if (
-                (outer != null && outer.partiallyRaw())
-                        || SpecializedTypeUtils.partiallyRaw(arg1)
-                        || SpecializedTypeUtils.partiallyRaw(arg2)
-                        || SpecializedTypeUtils.partiallyRaw(arg3)
-        ) {
-            flags |= PARTIALLY_RAW;
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param type                 the type
+    /// @param captureStart         the start index of the captured types
+    /// @param arg1                 the first type argument
+    /// @param arg2                 the second type argument
+    /// @param arg3                 the third type argument
+    /// @param arg4                 the fourth type argument
+    /// @return the created descriptor
+    @PrototypeInternal
+    public static ClassDescriptor of(
+            Class<?> type,
+            int captureStart,
+            TypeDescriptor arg1,
+            TypeDescriptor arg2,
+            TypeDescriptor arg3,
+            TypeDescriptor arg4
+    ) {
+        Utils.requireNonNull(arg1);
+        Utils.requireNonNull(arg2);
+        Utils.requireNonNull(arg3);
+        Utils.requireNonNull(arg4);
+        Utils.checkIndex(captureStart, 5);
+        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1, arg2, arg3, arg4});
+    }
+
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param type                 the type
+    /// @param captureStart         the start index of the captured types
+    /// @param arg1                 the first type argument
+    /// @param arg2                 the second type argument
+    /// @param arg3                 the third type argument
+    /// @param arg4                 the fourth type argument
+    /// @param arg5                 the fifth type argument
+    /// @return the created descriptor
+    @PrototypeInternal
+    public static ClassDescriptor of(
+            Class<?> type,
+            int captureStart,
+            TypeDescriptor arg1,
+            TypeDescriptor arg2,
+            TypeDescriptor arg3,
+            TypeDescriptor arg4,
+            TypeDescriptor arg5
+    ) {
+        Utils.requireNonNull(arg1);
+        Utils.requireNonNull(arg2);
+        Utils.requireNonNull(arg3);
+        Utils.requireNonNull(arg4);
+        Utils.requireNonNull(arg5);
+        Utils.checkIndex(captureStart, 6);
+        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1, arg2, arg3, arg4, arg5});
+    }
+
+    /// Creates a new [ClassDescriptor].
+    ///
+    /// @param type                 the type
+    /// @param captureStart         the start index of the captured types
+    /// @param arguments            the type arguments
+    /// @return the created descriptor
+    @PrototypeInternal
+    public static ClassDescriptor of(
+            Class<?> type,
+            int captureStart,
+            TypeDescriptor... arguments
+    ) {
+        Utils.requireNonNull(arguments);
+        Utils.checkIndex(captureStart, arguments.length + 1);
+
+        if (arguments.length == 0) {
+            return of(type);
         }
 
-        this(outer, type, flags, new SpecializedTypeDescriptor[]{arg1, arg2, arg3});
+        var array = new TypeDescriptor[arguments.length];
+        for (int i = 0; i < arguments.length; i++) {
+            array[i] = Utils.requireNonNull(arguments[i]);
+        }
+
+        return new ClassDescriptor(type, captureStart, array);
     }
+
+    //endregion
+
+    //region public api
 
     /// Gets the outer type if it exists.
     ///
@@ -184,33 +232,45 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor, Derivab
     ///
     /// @return the type
     public Class<?> type() {
+        if (!hasType()) {
+            throw new IllegalStateException("Hidden classes do not have type.");
+        }
         return type;
     }
 
-    /// Get the type argument at the n-th position
+    /// Whether this class has a type.
     ///
-    /// @param index the index
-    /// @return the type argument
-    public SpecializedTypeDescriptor typeArgument(int index) {
-        if (isRaw()) {
-            return ErasedType.instance();
-        }
-        Objects.checkIndex(index, typeArguments.length);
-        if (!hasTypeArguments()) {
-            throw new IllegalArgumentException("Type " + type + " is not parameterized.");
-        }
-        return typeArguments[index];
+    /// @return true if this class has a type; false otherwise
+    public boolean hasType() {
+        return type != MissingTypeSentinel.class;
     }
 
     @Override
+    public TypeDescriptor typeArgument(int index) {
+        if (isRaw()) {
+            return ErasedClassDescriptor.instance();
+        }
+        Utils.checkIndex(index, capturedTypeArgumentsStartIndex);
+        if (!hasTypeArguments()) {
+            throw new IllegalArgumentException("Type " + type + " is not parameterized.");
+        }
+        return arguments[index];
+    }
+
+    /// Views this descriptor as one of its super types.
+    ///
+    /// @param type the super type
+    /// @return this descriptor as one of its super types
     public Optional<ClassDescriptor> asSuper(Class<?> type) {
         Utils.requireNonNull(type);
-        return Optional.ofNullable($asSuper(type));
+        return Optional.ofNullable(superDescriptor(type));
     }
 
     @Override
     public Type asType() {
+        if (isHidden()) throw new AssertionError("This method should not be callable on hidden classes' descriptors.");
         if (javaType != null) return javaType;
+
         if (isRaw()) {
             javaType = type;
             return javaType;
@@ -218,14 +278,14 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor, Derivab
         var outer = hasOuter() ? this.outer.asType() : null;
 
         // basic class
-        if ((outer == null || outer instanceof Class<?>) && typeArguments.length == 0) {
+        if ((outer == null || outer instanceof Class<?>) && capturedTypeArgumentsStartIndex == 0) {
             javaType = type;
             return javaType;
         }
 
-        var arguments = new Type[typeArguments.length];
-        for (var i = 0; i < typeArguments.length; i++) {
-            arguments[i] = typeArguments[i].asType();
+        var arguments = new Type[capturedTypeArgumentsStartIndex];
+        for (var i = 0; i < capturedTypeArgumentsStartIndex; i++) {
+            arguments[i] = this.arguments[i].asType();
         }
 
         javaType = ParameterizedTypeImpl.make(type, arguments, outer);
@@ -233,87 +293,108 @@ public final class ClassDescriptor implements SpecializedTypeDescriptor, Derivab
     }
 
     @Override
+    public Properties properties() {
+        return properties;
+    }
+
+    @Override
     public String toString() {
-        return SpecializedTypeUtils.stringify(this);
+        return TypeDescriptorUtils.stringify(this);
     }
 
     @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof ClassDescriptor that)) return false;
-        return type.equals(that.type) && Arrays.equals(typeArguments, that.typeArguments) && Objects.equals(outer, that.outer);
+        return Utils.equals(type, that.type)
+                && Utils.arrayEquals(arguments, that.arguments)
+                && Utils.equals(outer, that.outer);
     }
 
     @Override
     public int hashCode() {
         var hash = 1;
-        hash = 31 * hash + type.hashCode();
-        hash = 31 * hash + (outer != null ? outer.hashCode() : 0);
-        hash = 31 * hash + Arrays.hashCode(typeArguments);
+        hash = 31 * hash + Utils.hashCode(type);
+        hash = 31 * hash + (hasOuter() ? outer.hashCode() : 0);
+        hash = 31 * hash + Utils.arrayHashCode(arguments);
         return hash;
+    }
+    //endregion
+
+    //region internal methods
+    @PrototypeInternal
+    @Override
+    public ClassDescriptor viewAsSuper(Class<?> type) {
+        Utils.requireNonNull(type);
+        var result = superDescriptor(type);
+        if (result == null) {
+            throw new AssertionError("This hidden class does not derives " + type);
+        }
+        return result;
+    }
+
+    TypeDescriptor argument(int index) {
+        Utils.checkIndex(index, arguments.length);
+        return arguments[index];
     }
 
     boolean isRaw() {
-        return (flags & IS_RAW) != 0;
+        return arguments == RAW_TYPE_ARGUMENTS;
     }
 
-    boolean partiallyRaw() {
-        return (flags & (PARTIALLY_RAW | IS_RAW)) != 0;
+    boolean isHidden() {
+        return type == MissingTypeSentinel.class;
     }
 
     boolean hasTypeArguments() {
-        return !(isRaw() || typeArguments.length == 0);
+        return !isRaw() && capturedTypeArgumentsStartIndex > 0;
     }
 
-    /// Gets the outer type if it exists.
-    ///
-    /// @return the outer type
-    public ClassDescriptor $outer() {
-        return hasOuter() ? outer : null;
+    boolean hasCapture() {
+        return capturedTypeArgumentsStartIndex < arguments.length;
     }
 
-    /// Sees the current descriptor as one of its super type. If this descriptor hasn't a representation for `type`,
-    /// this method will return null.
-    ///
-    /// @param type the super type
-    /// @return the current descriptor as one of its super types or null
-    public ClassDescriptor $asSuper(Class<?> type) {
-        Utils.requireNonNull(type);
+    boolean hasArgument() {
+        return arguments.length > 0;
+    }
+
+    void forEahTypeArgument(BiConsumer<? super TypeDescriptor, ? super Boolean> action) {
+        Utils.requireNonNull(action);
+        for (int i = 0; i < capturedTypeArgumentsStartIndex; i++) {
+            action.accept(arguments[i], i + 1 < capturedTypeArgumentsStartIndex);
+        }
+    }
+
+    void forEachCapture(BiConsumer<? super TypeDescriptor, ? super Boolean> action) {
+        Utils.requireNonNull(action);
+        for (int i = capturedTypeArgumentsStartIndex; i < arguments.length; i++) {
+            action.accept(arguments[i], i + 1 < arguments.length);
+        }
+    }
+
+    private ClassDescriptor superDescriptor(Class<?> type) {
         if (type == this.type) return this;
         if (superTypes == null) {
-            superTypes = Internal.generateSuperTypes(this.type, this);
+            superTypes = SuperDescriptorComputing.buildSuperMap(this);
         }
         return superTypes.get(type);
     }
 
-    void joinArguments(StringBuilder builder) {
-        SpecializedTypeUtils.joinSpecializedTypeArray(builder, typeArguments);
-    }
-
     private boolean hasOuter() {
-        return (flags & HAS_OUTER) != 0;
-    }
-
-    private static boolean partiallyRawArray(SpecializedTypeDescriptor[] typeArguments) {
-        for (var typeArg : typeArguments) {
-            if (SpecializedTypeUtils.partiallyRaw(typeArg)) {
-                return true;
-            }
-        }
         return false;
     }
 
-    private static boolean partiallyRaw(ClassDescriptor descriptor) {
-        return descriptor != null && descriptor.partiallyRaw();
+
+    private static Class<?> maskNullType(Class<?> type) {
+        return type == null ? MissingTypeSentinel.class : type;
     }
 
-    private static final byte IS_RAW = 1;
+    private static final TypeDescriptor[] EMPTY_ARRAY = new TypeDescriptor[0];
 
-    private static final byte HAS_OUTER = 1 << 1;
+    private static final TypeDescriptor[] RAW_TYPE_ARGUMENTS = new TypeDescriptor[0];
 
-    private static final byte PARTIALLY_RAW = 1 << 2;
+    private static final class MissingTypeSentinel {
+    }
 
-    private static final byte DEFAULT = (byte) 0b1000_0000;
-
-    private static final SpecializedTypeDescriptor[] EMPTY_ARRAY = new SpecializedTypeDescriptor[0];
+    //endregion
 
 }
