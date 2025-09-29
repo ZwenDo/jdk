@@ -24,7 +24,7 @@ public final class TransParameterizedTypes {
      */
     private static final Context.Key<TransParameterizedTypes> typeReifierKey = new Context.Key<>();
 
-    private static final int CONSTANT_DESCRIPTOR_BSM_FLAG_RAW = 1 << 1;
+    private static final int CONSTANT_DESCRIPTOR_BSM_FLAG_RAW = 1;
 
     private final boolean enableSynthetic;
     private final boolean enabled;
@@ -105,11 +105,6 @@ public final class TransParameterizedTypes {
 
         public final InstanceMethod argument = new InstanceMethod(
                 names.fromString("argument"),
-                syms.classDescriptorType
-        );
-
-        public final InstanceMethod $outer = new InstanceMethod(
-                names.fromString("$outer"),
                 syms.classDescriptorType
         );
 
@@ -1085,6 +1080,9 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression generateClassKind(Type.ClassType type) {
+            if (type.isRaw()) {
+                return constantClassDescriptor(null, type, List.nil());
+            }
             var outerType = generateOuterClass(type);
             var constantOuter = outerType == null || outerType.hasTag(JCTree.Tag.IDENT);
 
@@ -1183,12 +1181,6 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression constantClassDescriptor(JCTree.JCExpression outer, Type.ClassType type, List<JCTree.JCExpression> arguments) {
-            Symbol.DynamicVarSymbol outerCondy = null;
-            if (outer != null) {
-                var ident = (JCTree.JCIdent) outer;
-                outerCondy = (Symbol.DynamicVarSymbol) ident.sym;
-            }
-
             var condyArgs = new ListBuffer<>();
             condyArgs.add(typeToDescriptor(type));
 
@@ -1198,9 +1190,6 @@ public final class TransParameterizedTypes {
             }
 
             condyArgs.add(flags);
-//            if (outerCondy != null) {
-//                condyArgs.add(outerCondy);
-//            }
 
             for (var argument : arguments) {
                 var ident = (JCTree.JCIdent) argument;
@@ -1558,7 +1547,6 @@ public final class TransParameterizedTypes {
 
             @Override
             public boolean shouldGenerate(boolean usedInState, GroupStateId currentState) {
-                // FIXME, maybe we need to change the whole system to avoid generating too much interface access.
                 return usedInState;
             }
 
@@ -1918,7 +1906,7 @@ public final class TransParameterizedTypes {
             return constantsHolder.classDescriptorOfRaw.call(classLiteral(type));
         }
         var arguments = typeArguments
-                .prepend(make.Literal(captureStart)) // FIXME we need to compute the capture index
+                .prepend(make.Literal(captureStart))
                 .prepend(classLiteral(type));
 //                .prepend(outer)
 //                .prepend(computeSuperLambdaCall(currentMethod, classContext.computeSuperMethod));

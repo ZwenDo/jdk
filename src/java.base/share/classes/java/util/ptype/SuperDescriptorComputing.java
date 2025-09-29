@@ -17,9 +17,9 @@ final class SuperDescriptorComputing {
 
     private static HashMap<Class<?>, ClassDescriptor> buildHiddenClassMap(HiddenClassDescriptor concrete) {
         var finalSet = new HashSet<>(EXTRACTOR);
-        concrete.forEachDirectSuperType(new BiConsumer<ClassDescriptor, Boolean>() {
+        concrete.forEachDirectSuperType(new Consumer<ClassDescriptor>() {
             @Override
-            public void accept(ClassDescriptor concrete, Boolean ignored) {
+            public void accept(ClassDescriptor concrete) {
                 finalSet.addAll(buildRegularClassMap(concrete));
             }
         });

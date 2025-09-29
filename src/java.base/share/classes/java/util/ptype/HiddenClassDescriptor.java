@@ -84,10 +84,10 @@ public final class HiddenClassDescriptor implements DerivedClassDescriptor {
         return superTypes.get(type);
     }
 
-    void forEachDirectSuperType(BiConsumer<? super ClassDescriptor, ? super Boolean> action) {
+    void forEachDirectSuperType(Consumer<? super ClassDescriptor> action) {
         Utils.requireNonNull(action);
-        for (int i = 0; i < directSuperTypes.length; i++) {
-            action.accept(directSuperTypes[i], i + 1 < directSuperTypes.length);
+        for (var directSuperType : directSuperTypes) {
+            action.accept(directSuperType);
         }
     }
 

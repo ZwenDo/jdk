@@ -1,6 +1,8 @@
 package java.util.ptype;
 
-import jdk.internal.misc.VM;
+
+import java.lang.reflect.AccessFlag;
+import java.lang.reflect.Executable;
 
 final class TypeDescriptorUtils {
 
@@ -24,167 +26,73 @@ final class TypeDescriptorUtils {
                 builder.append("[]");
                 break;
             case ClassDescriptor classDescriptor:
-                var outer = classDescriptor.outer();
-                if (outer.isPresent()) {
-                    appendToBuilder(builder, outer.get());
-                    builder.append('.');
-                }
-
-                builder.append(classDescriptor.type().getSimpleName());
-
-                if (classDescriptor.isRaw()) {
-                    builder.append("(raw)");
-                    break;
-                }
-
-                if (classDescriptor.hasTypeArguments()) {
-                    builder.append('<');
-                    classDescriptor.forEahTypeArgument(new BiConsumer<TypeDescriptor, Boolean>() {
-                        @Override
-                        public void accept(TypeDescriptor descriptor, Boolean hasNext) {
-                            appendToBuilder(builder, descriptor);
-                            if (hasNext) {
-                                builder.append(", ");
-                            }
-                        }
-                    });
-                    builder.append('>');
-                }
-
-                if (classDescriptor.hasCapture()) {
-                    builder.append(" (");
-                    classDescriptor.forEachCapture(new BiConsumer<TypeDescriptor, Boolean>() {
-                        @Override
-                        public void accept(TypeDescriptor descriptor, Boolean hasNext) {
-                            appendToBuilder(builder, descriptor);
-                            if (hasNext) {
-                                builder.append(", ");
-                            }
-                        }
-                    });
-                    builder.append(')');
-                }
-
+                appendClassDescriptorToBuilder(builder, classDescriptor);
                 break;
             case ErasedClassDescriptor _:
                 builder.append("*erased*");
                 break;
         }
     }
-    //endregion
 
-    //region Type Verification
+    private static void appendClassDescriptorToBuilder(StringBuilder builder, ClassDescriptor classDescriptor) {
+        if (classDescriptor.isRaw()) {
+            builder.append(classDescriptor.type().getSimpleName());
+            builder.append("<*raw*>");
+            return;
+        }
+        appendClass(builder, classDescriptor, 0, classDescriptor.type());
+    }
 
-    /// Tests whether a given object has the expected [TypeDescriptor] and returns it. This method will print an error
-    /// if the `obj` is not a subtype of the `expected` specialized type.
-    ///
-    /// @param obj      the object to test
-    /// @param expected the expected type
-    /// @return the object
-    public static Object checkCast(
-            Object obj,
-            TypeDescriptor expected
-    ) {
-        Utils.requireNonNull(expected);
-        if (!VM.isBooted()) return obj;
+    private static void appendClass(StringBuilder builder, ClassDescriptor classDescriptor, int offset, Class<?> current) {
+        final var currentTypeParamsCount = current.getTypeParameters().length;
+        final var outerOffset = offset + currentTypeParamsCount;
 
-        if (obj == null) return null;
-        var actual = obj instanceof ClassDescriptorHolder holder ? holder.$descriptor() : null;
+        if (!current.accessFlags().contains(AccessFlag.STATIC)) {
+            var enclosingMethod = enclosingMethod(current);
+            var enclosingMethTypeParamsCount = 0;
+            var isEnclosingMethodStatic = false;
 
-        if (actual == null) {
-            return obj;
+            if (enclosingMethod != null) {
+                enclosingMethTypeParamsCount = enclosingMethod.getTypeParameters().length;
+                isEnclosingMethodStatic = enclosingMethod.accessFlags().contains(AccessFlag.STATIC);
+            }
+
+            if (!isEnclosingMethodStatic) {
+                var enclosingClass = current.getEnclosingClass();
+                if (enclosingClass != null) {
+                    appendClass(builder, classDescriptor, outerOffset + enclosingMethTypeParamsCount, enclosingClass);
+                    builder.append('.');
+                }
+            }
+
+            if (enclosingMethod != null) {
+                builder.append(enclosingMethod.getName());
+                if (enclosingMethTypeParamsCount > 0) {
+                    builder.append('<');
+                    for (var i = 0; i < enclosingMethTypeParamsCount; i++) {
+                        appendToBuilder(builder, classDescriptor.argument(i + outerOffset));
+                    }
+                    builder.append('>');
+                }
+                builder.append("().");
+            }
         }
 
-        if (!isInstance(obj, expected)) {
-            System.err.println(errorMessage(obj, expected));
+        builder.append(current.getSimpleName());
+        if (currentTypeParamsCount == 0) return;
+        builder.append('<');
+        for (var i = 0; i < currentTypeParamsCount; i++) {
+            appendToBuilder(builder, classDescriptor.argument(i + offset));
         }
-
-        return obj;
+        builder.append('>');
     }
 
-    private static boolean isInstance(Object obj, TypeDescriptor expected) {
-        return false;
-//        switch (expected) {
-//            // var cast = (A<String>.B<Integer>) obj;
-//            case InnerClassType innerClassType:
-//                if (!isInstance(obj, innerClassType.innerType())) { // check inner type
-//                    return false;
-//                }
-//
-//                // we need to extract the expected outer class, because the actual object inner class might have an outer
-//                // this that does not extend the expected outer class (e.g. Attr.ResultInfo & Resolve.MethodResultInfo).
-//                Class<?> expectedOuterClass;
-//                var outerClassArg = innerClassType.outerType();
-//                if (outerClassArg instanceof ClassType outerClassType) {
-//                    expectedOuterClass = outerClassType.type();
-//                } else if (outerClassArg instanceof ParameterizedType parameterizedType) {
-//                    expectedOuterClass = parameterizedType.rawType();
-//                } else {
-//                    throw new AssertionError("Unexpected outer type: " + innerClassType.outerType());
-//                }
-//
-//                var outer = Internal.outerThis(obj, expectedOuterClass);
-//                if (outer.isPresent()) {
-//                    return isInstance(outer.get(), innerClassType.outerType());
-//                } else { // by default if no outer type is specified, yield true
-//                    return true;
-//                }
-//
-//                // var cast = (String) obj; (usually (E) obj;)
-//            case ClassType classType:
-//                return classType.type().isAssignableFrom(obj.getClass());
-//
-//            // var cast = (List<String>) obj;
-//            case ParameterizedType parameterizedType:
-//                return validate(obj, expected, parameterizedType.rawType());
-//            // var cast = (List<String>[]) obj;
-//            case ArrayType arrayType:
-//                if (!obj.getClass().isArray()) return false;
-//                return validate(obj, expected, obj.getClass());
-//
-//            case null:
-//            default:
-//                throw new AssertionError();
-//        }
+    private static Executable enclosingMethod(Class<?> current) {
+        var method = current.getEnclosingMethod();
+        if (method != null) return method;
+        return current.getEnclosingConstructor();
     }
 
-    private static boolean validate(Object obj, TypeDescriptor expected, Class<?> supertype) {
-        var objClass = obj.getClass();
-        var value = extractInformationField(obj);
-        if (value == null) {
-            return supertype.isAssignableFrom(objClass);
-        }
-        return isAssignable(expected, value);
-    }
-
-    private static String errorMessage(Object obj, TypeDescriptor expected) {
-        var objClass = obj.getClass();
-        if (objClass.isAnonymousClass()) {
-            var interfaces = objClass.getInterfaces();
-            objClass = interfaces.length > 0 ? interfaces[0] : objClass.getSuperclass();
-        }
-
-        var builder = new StringBuilder();
-
-        var type = extractInformationField(objClass);
-        if (type != null) {
-            appendToBuilder(builder, type);
-        } else {
-            builder.append(objClass.getName());
-        }
-
-        builder.append(" to ");
-        appendToBuilder(builder, expected);
-        return builder.toString();
-    }
-
-    private static boolean isAssignable(TypeDescriptor expected, TypeDescriptor actual) {
-        return false;
-    }
-
-    private static ClassDescriptor extractInformationField(Object object) {
-        return null;
-    }
     //endregion
 
     private TypeDescriptorUtils() {

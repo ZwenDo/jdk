@@ -27,9 +27,10 @@ public final class ConstantTypeDescriptors {
             int flags,
             Object... arguments
     ) {
+        Utils.requireNonNull(rawType);
         Utils.requireNonNull(arguments);
 
-        var type = rawType.isEmpty() ? null : classFromName(lookup, rawType);
+        var type = classFromName(lookup, rawType);
 
         if (arguments.length == 0) {
             var isRaw = (flags & FLAG_RAW) != 0;
