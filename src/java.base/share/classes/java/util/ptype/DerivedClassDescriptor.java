@@ -5,10 +5,10 @@ package java.util.ptype;
 public interface DerivedClassDescriptor {
 
     /// Sees the current descriptor as one of its super type. If this descriptor hasn't any representation for `type`,
-    /// this method should throw.
+    /// this method will return null.
     ///
     /// @param type the super type
-    /// @return the current descriptor
+    /// @return the descriptor viewed as its super type or null
     ClassDescriptor viewAsSuper(Class<?> type);
 
 }

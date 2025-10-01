@@ -1856,6 +1856,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public List<JCExpression> args;
         public Type varargsElement;
         public boolean isRaw;
+        public List<Pair<Type, Type>> inferenceMapping = List.nil();
 
         protected JCMethodInvocation(List<JCExpression> typeargs,
                         JCExpression meth,
@@ -1909,6 +1910,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public Type varargsElement;
         public Type constructorType;
         public boolean isRaw;
+        public List<Pair<Type, Type>> inferenceMapping = List.nil();
 
         protected JCNewClass(JCExpression encl,
                            List<JCExpression> typeargs,
@@ -2619,6 +2621,7 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public boolean ownerAccessible;
         private OverloadKind overloadKind;
         public Type referentType;
+        public List<Pair<Type, Type>> inferenceMapping = List.nil();
 
         public enum OverloadKind {
             OVERLOADED,

@@ -67,22 +67,28 @@ final class TypeDescriptorUtils {
 
             if (enclosingMethod != null) {
                 builder.append(enclosingMethod.getName());
-                if (enclosingMethTypeParamsCount > 0) {
-                    builder.append('<');
-                    for (var i = 0; i < enclosingMethTypeParamsCount; i++) {
-                        appendToBuilder(builder, classDescriptor.argument(i + outerOffset));
-                    }
-                    builder.append('>');
-                }
+                appendTypeArguments(builder, classDescriptor, enclosingMethTypeParamsCount, outerOffset);
                 builder.append("().");
             }
         }
 
         builder.append(current.getSimpleName());
-        if (currentTypeParamsCount == 0) return;
+        appendTypeArguments(builder, classDescriptor, currentTypeParamsCount, offset);
+    }
+
+    private static void appendTypeArguments(
+            StringBuilder builder,
+            ClassDescriptor classDescriptor,
+            int end,
+            int offset
+    ) {
+        if (end == 0) return;
         builder.append('<');
-        for (var i = 0; i < currentTypeParamsCount; i++) {
+        for (var i = 0; i < end; i++) {
             appendToBuilder(builder, classDescriptor.argument(i + offset));
+            if (i + 1 < end) {
+                builder.append(", ");
+            }
         }
         builder.append('>');
     }

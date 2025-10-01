@@ -102,6 +102,8 @@ public class Infer {
 
     private final boolean erasePolySigReturnType;
 
+    private final boolean enableSpecialization;
+
     public static Infer instance(Context context) {
         Infer instance = context.get(inferKey);
         if (instance == null)
@@ -123,6 +125,7 @@ public class Infer {
         dependenciesFolder = options.get("debug.dumpInferenceGraphsTo");
         pendingGraphs = List.nil();
 
+        enableSpecialization = options.isSet("enableSpecialization");
         emptyContext = new InferenceContext(this, List.nil());
         dumpStacktraceOnError = options.isSet("dev") || options.isSet(DOE);
         Source source = Source.instance(context);
@@ -176,6 +179,21 @@ public class Infer {
                             Warner warn) throws InferenceException {
         //-System.err.println("instantiateMethod(" + tvars + ", " + mt + ", " + argtypes + ")"); //DEBUG
         final InferenceContext inferenceContext = new InferenceContext(this, tvars);  //B0
+
+        if (enableSpecialization) {
+            inferenceContext.addFreeTypeListener(tvars, (context) -> {
+                var buffer = new ListBuffer<Pair<Type, Type>>();
+                var inf = context.inferencevars.iterator();
+                var undet = context.undetvars.iterator();
+                while (inf.hasNext()) {
+                    var uv = (UndetVar) undet.next();
+                    buffer.prepend(Pair.of(inf.next(), uv.getInst() != null ? uv.getInst() : uv.qtype));
+                }
+                var mapping = buffer.toList();
+                TransParameterizedTypes.setMappings(env.tree, mapping);
+            });
+        }
+
         try {
             DeferredAttr.DeferredAttrContext deferredAttrContext =
                         resolveContext.deferredAttrContext(msym, inferenceContext, resultInfo, warn);
@@ -226,15 +244,6 @@ public class Infer {
             if (resultInfo != null && rs.verboseResolutionMode.contains(VerboseResolutionMode.DEFERRED_INST)) {
                 log.note(env.tree.pos, Notes.DeferredMethodInst(msym, mt, resultInfo.pt));
             }
-
-            var mapping = new ListBuffer<Pair<Type, Type>>();
-            var inf = inferenceContext.inferencevars.iterator();
-            var undet = inferenceContext.undetvars.iterator();
-            while (inf.hasNext()) {
-                var uv = (UndetVar) undet.next();
-                mapping.prepend(Pair.of(inf.next(), uv.getInst() != null ? uv.getInst() : uv.qtype));
-            }
-            mt.inferenceMapping = mapping.toList();
 
             // return instantiated version of method type
             return mt;
