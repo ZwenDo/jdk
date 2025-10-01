@@ -812,9 +812,9 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         /** The owner of this functional expression. */
         public Symbol owner;
 
-        public SpecialisationKind specialisationKind;
+        public SpecializationKind specializationKind;
 
-        public enum SpecialisationKind {
+        public enum SpecializationKind {
             CONSTANT,
             DYNAMIC,
             ;

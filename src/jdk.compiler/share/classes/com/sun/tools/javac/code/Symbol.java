@@ -57,7 +57,6 @@ import com.sun.tools.javac.code.Type.*;
 import com.sun.tools.javac.comp.Attr;
 import com.sun.tools.javac.comp.AttrContext;
 import com.sun.tools.javac.comp.Env;
-import com.sun.tools.javac.comp.TransParameterizedTypes;
 import com.sun.tools.javac.jvm.*;
 import com.sun.tools.javac.jvm.PoolConstant;
 import com.sun.tools.javac.tree.JCTree;
@@ -816,7 +815,8 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
     /** A base class for Symbols representing types.
      */
     public abstract static class TypeSymbol extends Symbol {
-        private byte newGenericsExcluded; // 0 unset | 1 true | -1 false
+        /// Whether this class is part of the specialization prototype
+        private byte fromSpecializationPrototype; // 0 unset | 1 true | -1 false
 
         public TypeSymbol(Kind kind, long flags, Name name, Type type, Symbol owner) {
             super(kind, flags, name, type, owner);
@@ -835,16 +835,18 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
             else return prefix.append('.', name);
         }
 
-        public void flagForNewGenerics() {
-            newGenericsExcluded = 1;
+        public void initSpecializationFlag(boolean value) {
+            if (fromSpecializationPrototype != 0) throw new AssertionError("Already initialized");
+            fromSpecializationPrototype = (byte) (value ? 1 : -1);
         }
 
-        public boolean hasNewGenerics() {
-            if (newGenericsExcluded == 0) {
-                var result = TransParameterizedTypes.hasNewGenerics(this);
-                newGenericsExcluded = (byte) (result ? 1 : -1);
-            }
-            return newGenericsExcluded == 1;
+        public boolean specializationFlagInitialized() {
+            return fromSpecializationPrototype != 0;
+        }
+
+        public boolean isSpecialized() {
+            if (!specializationFlagInitialized()) throw new AssertionError("Not initialized");
+            return fromSpecializationPrototype == 1;
         }
 
         /** form a fully qualified name from a name and an owner, after

@@ -242,12 +242,27 @@ public final class TransParameterizedTypes {
     }
     //endregion
 
-    public static boolean hasNewGenerics(Symbol.TypeSymbol clazz) {
+    private boolean hasNewGenerics(Symbol.TypeSymbol clazz) {
         Objects.requireNonNull(clazz);
-        var module = clazz.packge().modle;
-        if (module == null) return true;
-        var moduleName = module.getQualifiedName().toString();
-        return !(moduleName.startsWith("java") || moduleName.startsWith("jdk") || moduleName.startsWith("sun"));
+        if (clazz.specializationFlagInitialized()) {
+            return clazz.specializationFlagInitialized();
+        }
+
+        boolean value;
+        if (clazz.getDeclarationAttributes().contains(constantsHolder.instrumentedAnnotation)) {
+            value = true;
+        } else {
+            var module = clazz.packge().modle;
+            if (module == null) {
+                value = true;
+            } else {
+                var moduleName = module.getQualifiedName().toString();
+                value = !(moduleName.startsWith("java") || moduleName.startsWith("jdk") || moduleName.startsWith("sun"));
+            }
+        }
+
+        clazz.initSpecializationFlag(value);
+        return value;
     }
 
     //region rewriting (class)
@@ -257,14 +272,12 @@ public final class TransParameterizedTypes {
         public void visitClassDef(JCTree.JCClassDecl tree) {
             result = tree;
 
-            if (!tree.sym.hasNewGenerics()) {
-                super.visitClassDef(tree);
-                return;
-            }
-
             if (!enabled) return;
 
             if (constantsHolder == null) constantsHolder = new ConstantHolder();
+
+            // this call needs to occur after constantsHolder has been initialized
+            if (!hasNewGenerics(tree.sym)) return;
 
             try {
                 rewriteClass(tree);
@@ -320,7 +333,7 @@ public final class TransParameterizedTypes {
 
             // if we are parameterized or if the current class is plain but is under a generic interface
             if (
-                    currentClass.hasNewGenerics()
+                    hasNewGenerics(currentClass)
                             && !currentClass.isInterface()
                             && currentClass == highestClassInGenericHierarchy
             ) {
@@ -579,7 +592,7 @@ public final class TransParameterizedTypes {
                 return;
             }
 
-            if (!sym.owner.type.tsym.hasNewGenerics()) {
+            if (!hasNewGenerics(sym.owner.type.tsym)) {
                 super.visitApply(tree);
                 return;
             }
@@ -645,7 +658,7 @@ public final class TransParameterizedTypes {
         public void visitNewClass(JCTree.JCNewClass tree) {
             super.visitNewClass(tree);
             var sym = (Symbol.MethodSymbol) tree.constructor;
-            if (!sym.owner.type.tsym.hasNewGenerics()) return;
+            if (!hasNewGenerics(sym.owner.type.tsym)) return;
 
             var isParameterizedMethod = sym.type.getTypeArguments().nonEmpty();
             var isConstructorFromParameterizedClass = sym.isConstructor() && isParameterized(sym.owner);
@@ -756,10 +769,10 @@ public final class TransParameterizedTypes {
                     var identifier = (JCTree.JCIdent) i;
                     return (Symbol.DynamicVarSymbol) identifier.sym;
                 }));
-                tree.specialisationKind = JCTree.JCFunctionalExpression.SpecialisationKind.CONSTANT;
+                tree.specializationKind = JCTree.JCFunctionalExpression.SpecializationKind.CONSTANT;
             } else {
                 pushed = constantsHolder.hiddenClassDescriptorOf.call(arguments);
-                tree.specialisationKind = JCTree.JCFunctionalExpression.SpecialisationKind.DYNAMIC;
+                tree.specializationKind = JCTree.JCFunctionalExpression.SpecializationKind.DYNAMIC;
             }
 
             var push = constantsHolder.pushHiddenClass.call(pushed);
@@ -869,9 +882,9 @@ public final class TransParameterizedTypes {
             if ((tree.encl == null && isParameterized(classContext.classSymbol))) {
                 allParams(sym.owner.getEnclosingElement())
                         .forEach(p -> fullArguments.add(argLiteralGenerator.generateArgs(p.type)));
-            // on the other hand, if there is an explicit encl, we need to look a all the enclosing classes' types to
-            // to generate the captures that come from classes, and use the method type params of the enclosing methods
-            // for the captures that come from methods.
+                // on the other hand, if there is an explicit encl, we need to look a all the enclosing classes' types to
+                // to generate the captures that come from classes, and use the method type params of the enclosing methods
+                // for the captures that come from methods.
             } else if (tree.encl != null && isParameterized(tree.encl.type.tsym)) {
                 addExplicitEnclosingArguments(fullArguments, tree.type);
             }
@@ -1081,15 +1094,7 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression generateTypeVarKind(Type.TypeVar type) {
-            // TODO investigate this
-            var owner = type.tsym.owner;
-            var index = owner.type.getTypeArguments().indexOf(type);
-            if (index == -1) {
-                index = owner.type.allparams().indexOf(type);
-            }
-
-            // if the owner of this type does not have it in its declared type parameters, it is a wildcard
-            if (index == -1) { // wildcard
+            if (type.isCaptured()) {
                 return constantsHolder.erasedClassDescriptorInstance.call();
             }
 
@@ -1729,7 +1734,7 @@ public final class TransParameterizedTypes {
 
     }
 
-    public JCTree.JCMethodInvocation externalMethodInvocation(
+    private JCTree.JCMethodInvocation externalMethodInvocation(
             Name name,
             Type site,
             List<JCTree.JCExpression> arguments,
@@ -1794,10 +1799,6 @@ public final class TransParameterizedTypes {
                 newClass.inferenceMapping = mapping;
             }
         }
-    }
-
-    public boolean enabled() {
-        return enabled;
     }
 
     private static boolean isParameterized(Symbol symbol) {
@@ -1886,9 +1887,9 @@ public final class TransParameterizedTypes {
         return result;
     }
 
-    private static boolean hasGenericTypeInHierarchy(List<Type> types) {
+    private boolean hasGenericTypeInHierarchy(List<Type> types) {
         for (var type : types) {
-            if (type == Type.noType || type == null || !type.tsym.hasNewGenerics()) continue;
+            if (type == Type.noType || type == null || !hasNewGenerics(type.tsym)) continue;
             if (type.isParameterized()) return true;
             var cl = (Symbol.ClassSymbol) type.tsym;
             if (hasGenericTypeInHierarchy(List.of(cl.getSuperclass()))) return true;

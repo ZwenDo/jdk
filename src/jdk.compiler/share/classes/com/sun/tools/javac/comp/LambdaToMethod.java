@@ -836,7 +836,7 @@ public class LambdaToMethod extends TreeTranslator {
         List<Symbol> bridges = bridges(tree);
         boolean isSerializable = isSerializable(tree);
         boolean needsAltMetafactory = tree.target.isIntersection() ||
-                isSerializable || bridges.length() > 1 || tree.specialisationKind != null;
+                isSerializable || bridges.length() > 1 || tree.specializationKind != null;
 
         dumpStats(tree, needsAltMetafactory, nonDedupedRefSym);
 
@@ -865,7 +865,7 @@ public class LambdaToMethod extends TreeTranslator {
             if (hasBridges) {
                 flags |= FLAG_BRIDGES;
             }
-            if (tree.specialisationKind != null) {
+            if (tree.specializationKind != null) {
                 flags |= FLAG_SPECIALISATION;
             }
             staticArgs = staticArgs.append(LoadableConstant.Int(flags));
@@ -892,8 +892,8 @@ public class LambdaToMethod extends TreeTranslator {
                     make.at(prevPos);
                 }
             }
-            if (tree.specialisationKind != null) {
-                staticArgs = staticArgs.append(LoadableConstant.Int(tree.specialisationKind == JCFunctionalExpression.SpecialisationKind.CONSTANT ? 1 : 0));
+            if (tree.specializationKind != null) {
+                staticArgs = staticArgs.append(LoadableConstant.Int(tree.specializationKind == JCFunctionalExpression.SpecializationKind.CONSTANT ? 1 : 0));
             }
         }
 
