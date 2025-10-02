@@ -310,6 +310,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     /// @return the argument at the index
     @PrototypeInternal
     public TypeDescriptor argument(int index) {
+        if (isRaw()) return ErasedClassDescriptor.instance();
         Utils.checkIndex(index, arguments.length);
         return arguments[index];
     }

@@ -1909,6 +1909,15 @@ public abstract class JCTree implements Tree, Cloneable, DiagnosticPosition {
         public Symbol constructor;
         public Type varargsElement;
         public Type constructorType;
+        /// This field's value is true only for raw call to generic constructors.
+        /// ```
+        /// class A {
+        ///     <T> A() {}
+        /// }
+        /// new A();
+        /// // instead of
+        /// new <X>A();
+        /// ```
         public boolean isRaw;
         public List<Pair<Type, Type>> inferenceMapping = List.nil();
 
