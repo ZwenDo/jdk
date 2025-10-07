@@ -105,7 +105,8 @@ public sealed interface TypeDescriptor permits ArrayDescriptor, ClassDescriptor,
 
         @Override
         public String toString() {
-            var builder = new StringBuilder("{");
+            var builder = new StringBuilder();
+            builder.append("{");
 
             if (hasProperty(FULL)) {
                 builder.append("FULL, ");

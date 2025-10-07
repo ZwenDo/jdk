@@ -55,7 +55,8 @@ public final class ArrayDescriptor implements TypeDescriptor {
                 javaType = GenericArrayTypeImpl.make(gatype);
                 break;
             default:
-                throw new AssertionError("Unknown component type: " + component);
+                var message = Utils.join("Unknown component type: ", component.toString());
+                throw new AssertionError(message);
         }
         return javaType;
     }

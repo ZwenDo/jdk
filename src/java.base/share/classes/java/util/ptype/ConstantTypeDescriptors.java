@@ -43,7 +43,8 @@ public final class ConstantTypeDescriptors {
 
         var instance = ClassDescriptor.of(type, flattenedTypeArguments.length, flattenedTypeArguments);
         if (!instance.properties().isConstant()) {
-            throw new AssertionError(instance + " should be constant.");
+            var message = Utils.join(instance, " should be constant.");
+            throw new AssertionError(message);
         }
         return TypeDescriptorCaching.cache(instance);
     }

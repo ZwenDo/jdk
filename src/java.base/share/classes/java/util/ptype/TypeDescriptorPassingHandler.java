@@ -9,9 +9,6 @@ public final class TypeDescriptorPassingHandler {
     /// Specialized type passed to constructor.
     private ClassDescriptor constructorDescriptor;
 
-    /// Descriptor passed by hidden classes to their lambda implementation.
-    private ClassDescriptor lambdaDescriptor;
-
     /// Descriptor passed to hidden classes constructors.
     private HiddenClassDescriptor hiddenClassDescriptor;
 
@@ -48,23 +45,6 @@ public final class TypeDescriptorPassingHandler {
         var instance = instance();
         var args = instance.constructorDescriptor;
         instance.constructorDescriptor = null;
-        return args;
-    }
-
-    /// Pushes the type to the stack before a lambda calls its impl method.
-    /// @param arg the argument to push
-    public static void pushLambda(ClassDescriptor arg) {
-        var instance = instance();
-        instance.lambdaDescriptor = arg;
-    }
-
-    /// Returns the argument for the current lambda impl method call and resets the associated field.
-    ///
-    /// @return the argument for the current lambda impl method call.
-    public static ClassDescriptor lambdaTypeArguments() {
-        var instance = instance();
-        var args = instance.lambdaDescriptor;
-        instance.lambdaDescriptor = null;
         return args;
     }
 

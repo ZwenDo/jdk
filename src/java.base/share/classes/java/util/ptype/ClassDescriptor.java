@@ -234,7 +234,8 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         }
         Utils.checkIndex(index, capturedTypeArgumentsStartIndex);
         if (!hasTypeArguments()) {
-            throw new IllegalArgumentException("Type " + type + " is not parameterized.");
+            var message = Utils.join("Type ", type, " is not parameterized.");
+            throw new IllegalArgumentException(message);
         }
         return arguments[index];
     }

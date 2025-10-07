@@ -3,6 +3,14 @@ package java.util.ptype;
 
 final class Utils {
 
+    public static String join(Object... args) {
+        var builder = new StringBuilder();
+        for (var arg : args) {
+            builder.append(arg.toString());
+        }
+        return builder.toString();
+    }
+
     public static <T> T requireNonNull(T o) {
         if (o == null) {
             throw new IllegalArgumentException("Argument is null.");
@@ -12,7 +20,8 @@ final class Utils {
 
     public static void checkIndex(int index, int length) {
         if (index < 0 || index >= length) {
-            throw new IllegalArgumentException("Index " + index + " is out of bounds for length " + length);
+            var message = Utils.join("Index ", index, " is out of bounds for length ", length);
+            throw new IllegalArgumentException(message);
         }
     }
 

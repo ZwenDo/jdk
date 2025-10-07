@@ -34,7 +34,8 @@ final class HashMap<K,V>  {
             var v = java.util.ptype.Utils.requireNonNull((V) input[i + 1]);
             int idx = probe(k);
             if (idx >= 0) {
-                throw new IllegalArgumentException("duplicate key: " + k);
+                var message = Utils.join("duplicate key: ", k);
+                throw new IllegalArgumentException(message);
             } else {
                 int dest = -(idx + 1);
                 table[dest] = k;
@@ -61,7 +62,8 @@ final class HashMap<K,V>  {
             var descriptor = it.next();
             int idx = probeStatic(descriptor.type(), table);
             if (idx >= 0) {
-                throw new IllegalArgumentException("duplicate key: " + descriptor);
+                var message = Utils.join("duplicate key: ", descriptor.type());
+                throw new IllegalArgumentException(message);
             } else {
                 int dest = -(idx + 1);
                 table[dest] = descriptor.type();
@@ -87,7 +89,8 @@ final class HashMap<K,V>  {
             var v = valueMapper.apply(Utils.requireNonNull(input[i + 1]));
             int idx = probeStatic(k, table);
             if (idx >= 0) {
-                throw new IllegalArgumentException("duplicate key: " + k);
+                var message = Utils.join("duplicate key: ", k);
+                throw new IllegalArgumentException(message);
             } else {
                 int dest = -(idx + 1);
                 table[dest] = k;

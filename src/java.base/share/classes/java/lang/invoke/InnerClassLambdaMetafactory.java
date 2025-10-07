@@ -594,10 +594,6 @@ import sun.invoke.util.Wrapper;
 
                 convertArgumentTypes(cob, methodType);
 
-                if (needsSpecialisation) {
-                    // TODO
-                }
-
                 if (useImplMethodHandle) {
                     MethodType mtype = implInfo.getMethodType();
                     if (implKind != MethodHandleInfo.REF_invokeStatic) {

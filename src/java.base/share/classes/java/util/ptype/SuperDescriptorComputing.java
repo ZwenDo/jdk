@@ -83,7 +83,8 @@ final class SuperDescriptorComputing {
             case WildcardType _:
                 return mapWildcard();
             default:
-                throw new AssertionError("Unexpected type " + typeArgument);
+                var message = Utils.join("Unexpected type: ", typeArgument);
+                throw new AssertionError(message);
         }
     }
 
@@ -141,7 +142,8 @@ final class SuperDescriptorComputing {
                 asClass = (Class<?>) parameterizedType.getRawType();
                 break;
             default:
-                throw new AssertionError("Unexpected type: " + type);
+                var message = Utils.join("Unexpected type: ", type);
+                throw new AssertionError(message);
         }
         addNextEnclosingElement(arguments, concrete, type, asClass);
     }
@@ -167,7 +169,8 @@ final class SuperDescriptorComputing {
                 asClass = (Class<?>) parameterizedType.getRawType();
                 break;
             default:
-                throw new AssertionError("Unexpected type: " + type);
+                var message = Utils.join("Unexpected type: ", type);
+                throw new AssertionError(message);
         }
         addNextEnclosingElement(arguments, concrete, type, asClass);
     }
@@ -217,7 +220,8 @@ final class SuperDescriptorComputing {
     private static int findDeclarationIndex(Class<?> start, TypeVariable<?> argument) {
         var result = findDeclarationIndexInClass(0, start, argument);
         if (result == -1) {
-            throw new AssertionError("Cannot find " + argument + " in " + start);
+            var message = Utils.join("Cannot find ", argument, " in ", start);
+            throw new AssertionError(message);
         }
         return result;
     }
