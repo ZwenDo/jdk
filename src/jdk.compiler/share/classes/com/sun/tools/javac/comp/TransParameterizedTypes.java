@@ -131,16 +131,6 @@ public final class TransParameterizedTypes {
                 symbols.hiddenClassDescriptorType
         );
 
-        public final StaticMethod classDescriptorOfRaw = new StaticMethod(
-                names.fromString("ofRaw"),
-                symbols.classDescriptorType
-        );
-
-        public final StaticMethod erasedClassDescriptorInstance = new StaticMethod(
-                names.fromString("instance"),
-                symbols.erasedClassDescriptorType
-        );
-
         public final StaticMethod pushMethod = new StaticMethod(
                 names.fromString("pushMethod"),
                 symbols.typeDescriptorPassingHandlerType
@@ -260,7 +250,7 @@ public final class TransParameterizedTypes {
             value = true;
         } else {
             var modle = clazz.packge().modle;
-            value = modle != null && modle.getQualifiedName().contentEquals("jdk.compiler");
+            value = modle != null && (modle.isUnnamed() || modle.getQualifiedName().contentEquals("jdk.compiler"));
 //            var pkgName = clazz.packge().getQualifiedName();
 //            value = !(
 //                    pkgName.startsWith(names.java_lang)
@@ -994,8 +984,11 @@ public final class TransParameterizedTypes {
                 return Optional.of(list);
             }
 
-            if (isRaw || inferredTypes == null || inferredTypes.isEmpty()) {
+            if (isRaw) {
                 return Optional.empty();
+            }
+            if (inferredTypes.isEmpty()) {
+                throw new AssertionError("Inferred types should not be empty");
             }
 
             var list = sym.type
@@ -1154,8 +1147,8 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression generateTypeVarKind(Type.TypeVar type) {
-            if (type.isCaptured()) {
-                return constantsHolder.erasedClassDescriptorInstance.call();
+            if (type.isCaptured() || (type.tsym.flags() & SYNTHETIC) != 0) {
+                return constantsHolder.erasedTypeDescriptorBsm.call();
             }
 
             return typeVarResolution(type.tsym);
@@ -1879,7 +1872,10 @@ public final class TransParameterizedTypes {
             int captureStart
     ) {
         if (type.isRaw()) {
-            return constantsHolder.classDescriptorOfRaw.call(classLiteral(type));
+            return constantsHolder.constantClassDescriptorBsm.call(
+                    typeToDescriptor(type),
+                    CONSTANT_DESCRIPTOR_BSM_FLAG_RAW
+            );
         }
         var arguments = typeArguments
                 .prepend(make.Literal(captureStart))
