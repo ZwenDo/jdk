@@ -822,6 +822,14 @@ public class TransTypes extends TreeTranslator {
         }
     }
 
+    @Override
+    public void visitLetExpr(LetExpr tree) {
+        tree.defs = translate(tree.defs);
+        tree.expr = translate(tree.expr, pt);
+        tree.type = erasure(tree.type);
+        result = tree;
+    }
+
     public void visitSwitch(JCSwitch tree) {
         tree.selector = translate(tree.selector, erasure(tree.selector.type));
         tree.cases = translateCases(tree.cases);

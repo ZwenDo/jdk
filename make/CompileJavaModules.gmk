@@ -121,6 +121,7 @@ $(eval $(call SetupJavaCompilation, $(MODULE), \
         $(JAVAC_FLAGS) \
         --module-source-path $(MODULESOURCEPATH) \
         --module-path $(MODULEPATH) \
+        -XDenableSpecialization \
         --system none, \
 ))
 

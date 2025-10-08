@@ -4,17 +4,11 @@ import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.tools.javac.code.*;
 import com.sun.tools.javac.jvm.ByteCodes;
 import com.sun.tools.javac.jvm.PoolConstant;
-import com.sun.tools.javac.tree.JCTree;
-import com.sun.tools.javac.tree.TreeInfo;
-import com.sun.tools.javac.tree.TreeMaker;
-import com.sun.tools.javac.tree.TreeTranslator;
+import com.sun.tools.javac.tree.*;
 import com.sun.tools.javac.util.*;
 
-import javax.lang.model.type.TypeKind;
-import java.util.Iterator;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Scanner;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -23,10 +17,7 @@ import static com.sun.tools.javac.code.Flags.*;
 public final class TransParameterizedTypes {
 
     //region fields
-    /**
-     * The context key for the TransParameterizedTypes phase.
-     */
-    private static final Context.Key<TransParameterizedTypes> typeReifierKey = new Context.Key<>();
+    private static final Context.Key<TransParameterizedTypes> KEY = new Context.Key<>();
 
     private static final int CONSTANT_DESCRIPTOR_BSM_FLAG_RAW = 1;
 
@@ -34,8 +25,8 @@ public final class TransParameterizedTypes {
     private final boolean enabled;
 
     private final InstructionVisitor instructionVisitor;
-    private final ArgLiteralGenerator argLiteralGenerator;
-    private final ParameterizedScope typeParameterScopes;
+    private final TypeDescriptorFactory typeDescriptorFactory;
+    private final TypeVariableScopes typeParameterScopes;
     private final Translator translator;
     private ConstantHolder constantsHolder;
 
@@ -57,34 +48,15 @@ public final class TransParameterizedTypes {
     /// there will never be more than 99.
     private int nameOffsetIndex;
 
-    private static final class ClassContext {
-        private final JCTree.JCClassDecl classTree;
-        private final Symbol.ClassSymbol classSymbol;
-        private final Symbol.VarSymbol descriptorField;
-        private final boolean isHighestClassInGenericHierarchy;
-        private final boolean isInGenericHierarchy;
-        private final Env<AttrContext> env;
-
-        /// Field containing all the fields and blocks that are declared in the current class. These declarations must
-        /// be moved to the constructor to be able to access the method parameters.
-        private List<JCTree.JCStatement> inlineAndBlockDeclarations = List.nil();
-
-        private ClassContext(
-                JCTree.JCClassDecl classTree,
-                Symbol.ClassSymbol classSymbol,
-                Symbol.VarSymbol descriptorField,
-                boolean isHighestClassInGenericHierarchy,
-                boolean isInGenericHierarchy,
-                Env<AttrContext> env
-        ) {
-            this.classTree = classTree;
-            this.classSymbol = classSymbol;
-            this.descriptorField = descriptorField;
-            this.isHighestClassInGenericHierarchy = isHighestClassInGenericHierarchy;
-            this.isInGenericHierarchy = isInGenericHierarchy;
-            this.env = env;
-        }
-
+    private record ClassContext(
+            JCTree.JCClassDecl classTree,
+            Symbol.ClassSymbol classSymbol,
+            Symbol.VarSymbol descriptorField,
+            boolean isHighestClassInGenericHierarchy,
+            boolean isInGenericHierarchy,
+            Env<AttrContext> env,
+            int baseNameOffsetIndex
+    ) {
     }
 
     private final class ConstantHolder {
@@ -209,7 +181,7 @@ public final class TransParameterizedTypes {
 
     @SuppressWarnings("this-escape")
     private TransParameterizedTypes(Context context) {
-        context.put(typeReifierKey, this);
+        context.put(KEY, this);
         make = TreeMaker.instance(context);
         instructionVisitor = new InstructionVisitor();
         translator = new Translator();
@@ -220,8 +192,8 @@ public final class TransParameterizedTypes {
         operators = Operators.instance(context);
         resolve = Resolve.instance(context);
         lambdaToMethod = LambdaToMethod.instance(context);
-        typeParameterScopes = new ParameterizedScope();
-        argLiteralGenerator = new ArgLiteralGenerator();
+        typeParameterScopes = new TypeVariableScopes();
+        typeDescriptorFactory = new TypeDescriptorFactory();
         transTypes = TransTypes.instance(context);
         enter = Enter.instance(context);
         var options = Options.instance(context);
@@ -229,11 +201,8 @@ public final class TransParameterizedTypes {
         enableSynthetic = !options.isSet("showGeneratedCode");
     }
 
-    /**
-     * Get the instance for this context.
-     */
     public static TransParameterizedTypes instance(Context context) {
-        var instance = context.get(typeReifierKey);
+        var instance = context.get(KEY);
         if (instance == null) instance = new TransParameterizedTypes(context);
         return instance;
     }
@@ -249,14 +218,12 @@ public final class TransParameterizedTypes {
         if (clazz.getDeclarationAttributes().contains(constantsHolder.instrumentedAnnotation)) {
             value = true;
         } else {
-            var modle = clazz.packge().modle;
-            value = modle != null && (modle.isUnnamed() || modle.getQualifiedName().contentEquals("jdk.compiler"));
-//            var pkgName = clazz.packge().getQualifiedName();
-//            value = !(
-//                    pkgName.startsWith(names.java_lang)
-//                            || pkgName.startsWith(names.jdk_internal)
-//                            || pkgName.contentEquals("java.util.ptype")
-//            );
+            var pkgName = clazz.packge().getQualifiedName();
+            value = !(
+                    pkgName.startsWith(names.java_lang)
+                            || pkgName.startsWith(names.jdk_internal)
+                            || pkgName.contentEquals("java.util.ptype")
+            );
         }
 
         clazz.initSpecializationFlag(value);
@@ -322,7 +289,8 @@ public final class TransParameterizedTypes {
                 descriptorField,
                 isHighestClassInGenericHierarchy,
                 highestClassInGenericHierarchy != null,
-                enter.getEnv(tree.sym)
+                enter.getEnv(tree.sym),
+                nameOffsetIndex
         );
 
         try (var _ = typeParameterScopes.pushClassScope(descriptorField)) {
@@ -392,7 +360,7 @@ public final class TransParameterizedTypes {
     }
 
     private void rewriteDefinitions(JCTree.JCClassDecl tree) {
-        tree.defs = filteredDefinitions(tree);
+        tree.defs = normalizeDefinitions(tree);
         tree.defs.forEach(member -> {
             switch (member.getTag()) {
                 case METHODDEF -> {
@@ -407,56 +375,52 @@ public final class TransParameterizedTypes {
 
                 case CLASSDEF -> rewriteClass((JCTree.JCClassDecl) member);
 
-                // fields init have been moved to constructors and static blocks, we have nothing to do
                 case VARDEF -> {
+                    // fields init have been moved to blocks, nothing to do.
                 }
 
-                case BLOCK -> instructionVisitor.visitStaticBlock((JCTree.JCBlock) member);
+                case BLOCK -> rewriteBlock((JCTree.JCBlock) member);
 
                 default -> throw new AssertionError("Unexpected member type: " + member.getTag());
             }
+            resetIndex();
         });
     }
 
-    /**
-     * Filters the definitions of a class to remove instance fields initializers and instance blocks. This is done
-     * because the code they contain might need generic information, that is why we move them to the constructor.
-     *
-     * <pre>
-     * class Foo&lt;T&gt; {
-     *     List&lt;T&gt; list = new ArrayList&lt;&gt;(); // here we need the T info
-     * }
-     * </pre>
-     *
-     * @param tree the class to process
-     * @return the filtered definitions
-     */
-    private List<JCTree> filteredDefinitions(JCTree.JCClassDecl tree) {
+    /// Normalize the definitions of a class to be able to process fields and static blocks. All static blocks and
+    /// static field initializers are moved into a single static block. All instance field initializers are moved to a
+    /// single instruction block.
+    ///
+    /// @param tree the class to process
+    /// @return the filtered definitions
+    private List<JCTree> normalizeDefinitions(JCTree.JCClassDecl tree) {
         if (!tree.sym.type.isParameterized()) return tree.defs;
         var buffer = new ListBuffer<JCTree>();
         var staticBlock = new ListBuffer<JCTree.JCStatement>();
 
-        var inlineAndBlocksBuffer = new ListBuffer<JCTree.JCStatement>();
         tree.defs.forEach(member -> {
             switch (member.getTag()) {
                 case VARDEF -> {
                     var field = (JCTree.JCVariableDecl) member;
-                    if (field.init != null) { // we gather all fields with initializations
-                        if (field.sym.isStatic()) {
-                            staticBlock.add(make.Assignment(field.sym, field.init));
-                        } else {
-                            inlineAndBlocksBuffer.add(make.Assignment(field.sym, field.init));
-                        }
-                        field.init = null;
+                    if (field.init == null) {
+                        buffer.add(field);
+                        return;
                     }
+                    if (field.sym.isStatic()) {
+                        staticBlock.add(make.Assignment(field.sym, field.init));
+                    } else {
+                        var assign = make.Assignment(field.sym, field.init);
+                        buffer.add(make.Block(0L, List.of(assign)));
+                    }
+                    field.init = null;
                     buffer.add(field);
                 }
                 case BLOCK -> {
                     var block = (JCTree.JCBlock) member;
                     if ((block.flags & STATIC) != 0) { // static blocks are ok
                         staticBlock.addAll(block.stats);
-                    } else { // we totally remove the instance blocks
-                        inlineAndBlocksBuffer.addAll(block.stats);
+                    } else {
+                        buffer.add(block);
                     }
                 }
                 default -> buffer.add(member);
@@ -466,67 +430,76 @@ public final class TransParameterizedTypes {
             buffer.add(make.Block(STATIC, staticBlock.toList()));
         }
 
-        classContext.inlineAndBlockDeclarations = inlineAndBlocksBuffer.toList();
         return buffer.toList();
     }
     //endregion
 
-    //region rewriting (method)
+    //region rewriting (members)
     private void rewriteBasicMethod(JCTree.JCMethodDecl method) {
         if (method.body == null) return;
 
         try (var _ = typeParameterScopes.pushMethodScope(method.sym)) {
-            instructionVisitor.visitRegularMethod(method);
+            instructionVisitor.rewriteMethod(method);
             adjustRegularMethodBody(method);
         }
     }
 
     private void rewriteConstructor(JCTree.JCMethodDecl method) {
         try (var _ = typeParameterScopes.pushMethodScope(method.sym)) {
-            var doesCallOverload = TreeInfo.hasConstructorCall(method, names._this);
-            // insert the init of the fields that we move to the constructor
-            if (!doesCallOverload && !classContext.inlineAndBlockDeclarations.isEmpty()) {
-                insertInlineFieldsAndBlocks(method);
-            }
-
             var constructorArgsVariable = typeParameterScopes.constructorPassedDescriptor();
-            instructionVisitor.visitConstructor(method, constructorArgsVariable);
+            instructionVisitor.rewriteConstructor(method, constructorArgsVariable);
+            var doesCallOverload = TreeInfo.hasConstructorCall(method, names._this);
             adjustConstructorBody(method, doesCallOverload ? null : constructorArgsVariable);
         }
-        // TODO
-//        if (classContext.classSymbol.name.contentEquals("Option") && classContext.classSymbol.packge().getQualifiedName().contentEquals("com.sun.tools.javac.main")) {
-//            Type last = method.type.asMethodType().argtypes.last();
-//            System.out.println("###########");
-//            System.out.println(last);
-//            System.out.println(last.getClass());
-//            System.out.println(method);
-//        }
     }
 
-    /**
-     * Inserts the removed code of field initializers and instance blocks in the constructor body.
-     *
-     * @param method the constructor in which to insert the code
-     */
-    private void insertInlineFieldsAndBlocks(JCTree.JCMethodDecl method) {
-        var superCall = TreeInfo.findConstructorCall(method);
-        var buffer = new ListBuffer<JCTree.JCStatement>();
-        if (superCall != null) { // if there is a superCall, we must insert the initializations right after it
-            var bodyIterator = method.body.stats.iterator();
-            while (bodyIterator.hasNext()) {
-                var next = bodyIterator.next();
-                buffer.add(next);
-                if (TreeInfo.isSuperCall(next)) {
-                    break;
-                }
-            }
-            buffer.addAll(classContext.inlineAndBlockDeclarations);
-            bodyIterator.forEachRemaining(buffer::add);
-        } else { // otherwise we can just prepend the instructions
-            buffer.addAll(classContext.inlineAndBlockDeclarations);
-            buffer.addAll(method.body.stats);
+    private void rewriteBlock(JCTree.JCBlock block) {
+        if (block.stats.isEmpty()) return;
+
+        var flags = STATIC;
+        var name = names.clinit;
+        if (block.isStatic()) {
+            flags = 0;
+            name = names.init;
         }
-        method.body.stats = buffer.toList();
+
+        var blockMethod = new Symbol.MethodSymbol(
+                flags,
+                name,
+                new Type.MethodType(List.nil(), symbols.voidType, List.nil(), symbols.methodClass),
+                classContext.classSymbol
+        );
+
+        if (!block.isStatic()) {
+            try (var _ = typeParameterScopes.pushMethodScope(blockMethod)) {
+                instructionVisitor.rewriteBlock(block, blockMethod);
+                var buffer = new ListBuffer<JCTree.JCStatement>();
+                typeParameterScopes.generateVariables(buffer::add);
+                buffer.addAll(block.stats);
+                block.stats = buffer.toList();
+            }
+            return;
+        }
+
+        var methodDef = make.VarDef(
+                createVariable(symbols.methodDescriptorType, blockMethod),
+                constantsHolder.methodTypeArguments.call()
+        );
+        var constructorDef = make.VarDef(
+                createVariable(symbols.classDescriptorType, blockMethod),
+                constantsHolder.constructorTypeArguments.call()
+        );
+
+        instructionVisitor.rewriteBlock(block, blockMethod);
+        var tryBlock = make.Block(0L, block.stats);
+
+        var methodPush = constantsHolder.pushMethod.call(make.Ident(methodDef));
+        var constructorPush = constantsHolder.pushConstructor.call(make.Ident(constructorDef));
+
+        var finallyBlock = make.Block(0L, List.of(make.Exec(methodPush), make.Exec(constructorPush)));
+        var tryFinally = make.Try(tryBlock, List.nil(), finallyBlock);
+
+        block.stats = List.of(methodDef, constructorDef, tryFinally);
     }
 
     private void adjustConstructorBody(JCTree.JCMethodDecl method, Symbol.VarSymbol argsVariable) {
@@ -625,14 +598,7 @@ public final class TransParameterizedTypes {
             }
 
             if (isParameterizedMethod) {
-                JCTree.JCExpression push = null;
-                try {
-                    push = pushMethodCode(tree.typeargs, tree.inferenceMapping, sym, tree.isRaw);
-                } catch (AssertionError e) {
-                    System.out.println(tree + " // " + tree.typeargs + " // " + tree.inferenceMapping);
-                    throw e;
-                }
-                ;
+                var push = pushMethodCode(tree.typeargs, tree.inferenceMapping, sym, tree.isRaw);
                 pushStatements = pushStatements.prepend(make.Exec(push));
             }
 
@@ -703,7 +669,6 @@ public final class TransParameterizedTypes {
                 tree.args = insertPostCall(pushStatements, sym, tree.constructorType.asMethodType(), tree.args);
                 result = tree;
             }
-
         }
 
         @Override
@@ -711,32 +676,6 @@ public final class TransParameterizedTypes {
             // do not recurse on inner classes
             rewriteClass(tree);
             result = tree;
-        }
-
-        @Override
-        public void visitBlock(JCTree.JCBlock tree) {
-            super.visitBlock(tree);
-            if (!tree.isStatic() || tree.stats.isEmpty()) return;
-
-            // TODO move this code out of InstructionVisitor, to be consistent with method and constructor
-            var methodDef = make.VarDef(
-                    createVariable(symbols.methodDescriptorType, extraVariablesOwner),
-                    constantsHolder.methodTypeArguments.call()
-            );
-            var constructorDef = make.VarDef(
-                    createVariable(symbols.classDescriptorType, extraVariablesOwner),
-                    constantsHolder.constructorTypeArguments.call()
-            );
-
-            var tryBlock = make.Block(0L, tree.stats);
-
-            var methodPush = constantsHolder.pushMethod.call(make.Ident(methodDef));
-            var constructorPush = constantsHolder.pushConstructor.call(make.Ident(constructorDef));
-
-            var finallyBlock = make.Block(0L, List.of(make.Exec(methodPush), make.Exec(constructorPush)));
-            var tryFinally = make.Try(tryBlock, List.nil(), finallyBlock);
-
-            tree.stats = List.of(methodDef, constructorDef, tryFinally);
         }
 
         @Override
@@ -785,7 +724,7 @@ public final class TransParameterizedTypes {
             tree.body = make.Block(0L, body.toList());
 
             JCTree.JCExpression pushed;
-            var arguments = superTypes.map(argLiteralGenerator::generateArgs);
+            var arguments = superTypes.map(typeDescriptorFactory::createTypeDescriptor);
             if (constantList(arguments)) {
                 pushed = constantsHolder.constantHiddenClassDescriptorBsm.call(arguments.map(i -> {
                     var identifier = (JCTree.JCIdent) i;
@@ -825,7 +764,7 @@ public final class TransParameterizedTypes {
             expr.accept(this);
         }
 
-        public void visitRegularMethod(JCTree.JCMethodDecl method) {
+        public void rewriteMethod(JCTree.JCMethodDecl method) {
             var oldExtraVariablesOwner = extraVariablesOwner;
             try {
                 extraVariablesOwner = method.sym;
@@ -835,7 +774,7 @@ public final class TransParameterizedTypes {
             }
         }
 
-        public void visitConstructor(JCTree.JCMethodDecl method, Symbol.VarSymbol constructorArgsVariable) {
+        public void rewriteConstructor(JCTree.JCMethodDecl method, Symbol.VarSymbol constructorArgsVariable) {
             var oldConstructorArgsVariable = this.constructorArgsVariable;
             var oldExtraVariablesOwner = extraVariablesOwner;
             try {
@@ -848,17 +787,13 @@ public final class TransParameterizedTypes {
             }
         }
 
-        public void visitStaticBlock(JCTree.JCBlock block) {
+        public void rewriteBlock(
+                JCTree.JCBlock block,
+                Symbol.MethodSymbol enclosing
+        ) {
             var oldExtraVariablesOwner = extraVariablesOwner;
             try {
-                extraVariablesOwner = new Symbol.MethodSymbol(
-                        STATIC,
-                        names.clinit,
-                        new Type.MethodType(
-                                List.nil(), symbols.voidType,
-                                List.nil(), symbols.methodClass),
-                        classContext.classSymbol
-                );
+                extraVariablesOwner = enclosing;
                 visitBlock(block);
             } finally {
                 extraVariablesOwner = oldExtraVariablesOwner;
@@ -895,11 +830,11 @@ public final class TransParameterizedTypes {
         ) {
             var isRaw = typeArguments.isEmpty() != sym.owner.type.getTypeArguments().isEmpty();
             if (isRaw) {
-                return argLiteralGenerator.rawClassDescriptor((Type.ClassType) types.erasure(tree.type));
+                return typeDescriptorFactory.rawClassDescriptor((Type.ClassType) types.erasure(tree.type));
             }
 
             var fullArguments = new ListBuffer<JCTree.JCExpression>();
-            typeArguments.forEach(t -> fullArguments.add(argLiteralGenerator.generateArgs(t)));
+            typeArguments.forEach(t -> fullArguments.add(typeDescriptorFactory.createTypeDescriptor(t)));
             var captureStart = fullArguments.size();
 
             // if encl is null, it means that all the types that need to be captured are in the current scopes.
@@ -908,7 +843,7 @@ public final class TransParameterizedTypes {
             // not an inner class.
             if (sym.isInner() && !sym.owner.isStatic() && tree.encl == null && isParameterized(sym.owner)) {
                 allParams(sym.owner.getEnclosingElement())
-                        .forEach(p -> fullArguments.add(argLiteralGenerator.generateArgs(p.type)));
+                        .forEach(p -> fullArguments.add(typeDescriptorFactory.createTypeDescriptor(p.type)));
                 // on the other hand, if there is an explicit encl, we need to look a all the enclosing classes' types to
                 // to generate the captures that come from classes, and use the method type params of the enclosing methods
                 // for the captures that come from methods.
@@ -920,7 +855,7 @@ public final class TransParameterizedTypes {
 
             JCTree.JCExpression pushedValue;
             if (captureStart == fullArguments.size() && constantList(args)) {
-                pushedValue = argLiteralGenerator.constantClassDescriptor((Type.ClassType) sym.owner.type, args);
+                pushedValue = typeDescriptorFactory.constantClassDescriptor((Type.ClassType) sym.owner.type, args);
             } else {
                 pushedValue = classDescriptorConstructorInvocation(sym.owner.type, args, captureStart);
             }
@@ -947,7 +882,7 @@ public final class TransParameterizedTypes {
                 return constantsHolder.pushConstructor.call(make.Ident(constructorArgsVariable));
             }
 
-            var descriptor = argLiteralGenerator.generateArgs(classContext.classSymbol.getSuperclass());
+            var descriptor = typeDescriptorFactory.createTypeDescriptor(classContext.classSymbol.getSuperclass());
             return constantsHolder.pushConstructor.call(descriptor);
         }
 
@@ -980,7 +915,7 @@ public final class TransParameterizedTypes {
             // by default, we try to use the provided type arguments Foo.<String>foo();, but if none are provided, we
             // use the inferred types `String s = foo();`
             if (explicitTypes.nonEmpty()) { // provided type arguments
-                var list = explicitTypes.map(t -> argLiteralGenerator.generateArgs(t.type));
+                var list = explicitTypes.map(t -> typeDescriptorFactory.createTypeDescriptor(t.type));
                 return Optional.of(list);
             }
 
@@ -993,7 +928,7 @@ public final class TransParameterizedTypes {
 
             var list = sym.type
                     .getTypeArguments()
-                    .map(t -> argLiteralGenerator.generateArgs(computeTypeFromInference(inferredTypes, t)));
+                    .map(t -> typeDescriptorFactory.createTypeDescriptor(computeTypeFromInference(inferredTypes, t)));
             return Optional.of(list);
         }
 
@@ -1049,12 +984,12 @@ public final class TransParameterizedTypes {
                     case MTH -> currentSymbol
                             .type
                             .getTypeArguments()
-                            .forEach(t -> buffer.add(argLiteralGenerator.generateArgs(t)));
+                            .forEach(t -> buffer.add(typeDescriptorFactory.createTypeDescriptor(t)));
                     case TYP -> {
                         currentType = currentType.getEnclosingType();
                         currentType
                                 .getTypeArguments()
-                                .forEach(t -> buffer.add(argLiteralGenerator.generateArgs(t)));
+                                .forEach(t -> buffer.add(typeDescriptorFactory.createTypeDescriptor(t)));
                     }
                     default -> {
                         return;
@@ -1087,13 +1022,13 @@ public final class TransParameterizedTypes {
 
     }
 
-    private final class ArgLiteralGenerator {
+    private final class TypeDescriptorFactory {
 
-        public JCTree.JCExpression generateArgs(Type type) {
-            return actualGenerateArgs(type);
+        public JCTree.JCExpression createTypeDescriptor(Type type) {
+            return create(type);
         }
 
-        private JCTree.JCExpression actualGenerateArgs(Type current) {
+        private JCTree.JCExpression create(Type current) {
             return switch (current.getKind()) {
                 case ARRAY -> generateArrayKind((Type.ArrayType) current);
                 case WILDCARD -> generateWildcardKind((Type.WildcardType) current);
@@ -1108,7 +1043,7 @@ public final class TransParameterizedTypes {
         }
 
         private JCTree.JCExpression generateArrayKind(Type.ArrayType type) {
-            var component = actualGenerateArgs(type.elemtype);
+            var component = create(type.elemtype);
             if (component.hasTag(JCTree.Tag.IDENT)) {
                 var identifier = (JCTree.JCIdent) component;
                 var componentCondy = (Symbol.DynamicVarSymbol) identifier.sym;
@@ -1131,7 +1066,7 @@ public final class TransParameterizedTypes {
             }
 
             var fullArguments = new ListBuffer<JCTree.JCExpression>();
-            type.getTypeArguments().forEach(t -> fullArguments.add(argLiteralGenerator.generateArgs(t)));
+            type.getTypeArguments().forEach(t -> fullArguments.add(typeDescriptorFactory.createTypeDescriptor(t)));
             var captureStart = fullArguments.size();
             addOuterTypes(fullArguments, type);
 
@@ -1229,21 +1164,24 @@ public final class TransParameterizedTypes {
                     default -> null;
                 };
                 if (toGenerate == null) return;
-                toGenerate.getTypeArguments().forEach(t -> buffer.add(generateArgs(t)));
+                toGenerate.getTypeArguments().forEach(t -> buffer.add(createTypeDescriptor(t)));
                 currentSym = currentSym.getEnclosingElement();
             }
         }
 
     }
 
-    private final class ParameterizedScope {
-        // Invariants:
-        // - Each pushMethod also pushes a new state.
+    /// Class managing scoping of type variables. Each time we enter an element declaring type variables (class,
+    /// interface, method or constructor), we push the corresponding scope. The scope is responsible for generating
+    /// local variables that allow access to the type variables, and also to provide through the
+    /// [Scope#access(Symbol.VarSymbol, int)] method, a handle to generate accesses to the type variables of the scope
+    /// (e.g., field$.argument(i) or method$.argument(i)), using the local variable the scope generated.
+    private final class TypeVariableScopes {
         private List<Scope> scopes = List.nil();
-        private List<GroupState> states = List.nil();
+        private List<ScopesSnapshot> snapshots = List.nil();
         private Symbol.VarSymbol constructorPassedDescriptor;
 
-        public GroupRemover pushClassScope(Symbol.VarSymbol descriptorField) {
+        public ScopeRemover pushClassScope(Symbol.VarSymbol descriptorField) {
             var typeParameters = allParams(classContext.classSymbol);
             var addedCount = 0;
 
@@ -1255,10 +1193,10 @@ public final class TransParameterizedTypes {
                 scopes = scopes.prepend(scope);
                 addedCount++;
             }
-            return new GroupRemover(addedCount, this, GroupRemover.Action.NO_OP);
+            return new ScopeRemover(addedCount, this, ScopeRemover.Action.NO_OP);
         }
 
-        public GroupRemover pushMethodScope(Symbol.MethodSymbol method) {
+        public ScopeRemover pushMethodScope(Symbol.MethodSymbol method) {
             var id = new GroupStateId();
             var addedCount = 0;
 
@@ -1279,8 +1217,8 @@ public final class TransParameterizedTypes {
                 addedCount++;
             }
 
-            states = states.prepend(new GroupState(id, scopes, method));
-            return new GroupRemover(addedCount, this, GroupRemover.Action.POP_STATE);
+            snapshots = snapshots.prepend(new ScopesSnapshot(id, scopes, method));
+            return new ScopeRemover(addedCount, this, ScopeRemover.Action.POP_STATE);
         }
 
         public Symbol.VarSymbol constructorPassedDescriptor() {
@@ -1288,7 +1226,7 @@ public final class TransParameterizedTypes {
         }
 
         public void generateVariables(Consumer<JCTree.JCStatement> statementConsumer) {
-            states.getFirst().generateVariables(statementConsumer);
+            snapshots.getFirst().generateVariables(statementConsumer);
         }
 
         public JCTree.JCExpression resolve(Symbol.TypeSymbol typeVar) {
@@ -1299,7 +1237,7 @@ public final class TransParameterizedTypes {
                     groupIndex++;
                     continue;
                 }
-                var variable = states.head.variable(groupIndex);
+                var variable = snapshots.head.variable(groupIndex);
                 return group.access(variable, index);
             }
             return null;
@@ -1320,11 +1258,16 @@ public final class TransParameterizedTypes {
         private static final class GroupStateId {
         }
 
-        public static final class GroupState {
+        /// A snapshot of the current group of scopes. A snapshot is generated each time we enter a method or a block,
+        /// and each method and block have their own snapshot.
+        ///
+        /// Snapshots store the potential local variables for all the existing scopes at the time of the snapshot.
+        /// This is done to avoid nested method wrongly access the variable from their enclosing methods.
+        public static final class ScopesSnapshot {
             private final List<Slot> groups;
             private final GroupStateId id;
 
-            private GroupState(GroupStateId id, List<Scope> scopes, Symbol variableOwner) {
+            private ScopesSnapshot(GroupStateId id, List<Scope> scopes, Symbol variableOwner) {
                 this.id = id;
                 this.groups = scopes.map(g -> new Slot(g, g.variable(variableOwner)));
             }
@@ -1580,7 +1523,7 @@ public final class TransParameterizedTypes {
                 // if (args == null) args = *raw type*
                 var fallback = fallbackIf(
                         declarationVariable,
-                        argLiteralGenerator.rawClassDescriptor(classType)
+                        typeDescriptorFactory.rawClassDescriptor(classType)
                 );
                 statementConsumer.accept(fallback);
             }
@@ -1624,7 +1567,7 @@ public final class TransParameterizedTypes {
                 statementConsumer.accept(
                         fallbackIf(
                                 declarationVariable,
-                                argLiteralGenerator.rawClassDescriptor(classType)
+                                typeDescriptorFactory.rawClassDescriptor(classType)
                         )
                 );
             }
@@ -1655,13 +1598,13 @@ public final class TransParameterizedTypes {
             }
         }
 
-        private static class GroupRemover implements AutoCloseable {
+        private static class ScopeRemover implements AutoCloseable {
             private final int count;
-            private final ParameterizedScope scope;
+            private final TypeVariableScopes scope;
             private final Action action;
             private boolean closed;
 
-            private GroupRemover(int count, ParameterizedScope scope, Action action) {
+            private ScopeRemover(int count, TypeVariableScopes scope, Action action) {
                 if (count < 0) throw new IllegalArgumentException("count = " + count + " < 0");
                 this.count = count;
                 this.scope = scope;
@@ -1677,7 +1620,7 @@ public final class TransParameterizedTypes {
                 }
                 switch (action) {
                     case POP_STATE -> {
-                        scope.states = scope.states.tail;
+                        scope.snapshots = scope.snapshots.tail;
                         scope.constructorPassedDescriptor = null;
                     }
                     case NO_OP -> {
@@ -1954,6 +1897,10 @@ public final class TransParameterizedTypes {
                 type,
                 owner
         );
+    }
+
+    private void resetIndex() {
+        nameOffsetIndex = classContext.baseNameOffsetIndex;
     }
 
     private String nextVariableId(String prefix) {
