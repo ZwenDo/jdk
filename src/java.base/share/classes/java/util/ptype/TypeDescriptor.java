@@ -42,6 +42,25 @@ public sealed interface TypeDescriptor permits ArrayDescriptor, ClassDescriptor,
         return filterPartialDescriptor(descriptor);
     }
 
+    /// [TypeDescriptor] should implement a proper toString method.
+    ///
+    /// @return the string representation
+    @Override
+    String toString();
+
+    /// [TypeDescriptor] should implement a proper hashCode method.
+    ///
+    /// @return the hash code
+    @Override
+    int hashCode();
+
+    /// [TypeDescriptor] should implement a proper equals method.
+    ///
+    /// @param obj the other object
+    /// @return true if equal
+    @Override
+    boolean equals(Object obj);
+
     //endregion
 
     //region internal methods
@@ -53,54 +72,40 @@ public sealed interface TypeDescriptor permits ArrayDescriptor, ClassDescriptor,
         @Stable
         private final int props;
 
-        Properties(
-                boolean isFull,
-                boolean isConstant
-        ) {
-            var props = Properties.DEFAULT;
-            if (isFull) {
-                props |= Properties.FULL;
+        Properties(Property... props) {
+            var value = Property.DEFAULT.value();
+            for (var prop : props) {
+                value |= prop.value();
             }
-            if (isConstant) {
-                props |= Properties.CONSTANT;
-            }
-            this.props = props;
+            this.props = value;
         }
 
         private Properties(int props) {
             this.props = props;
         }
 
-        static Properties computeTransitiveFlags(TypeDescriptor[] arguments, Properties base) {
-            var props = base;
-            for (var argument : arguments) {
-                props = argument.properties().merge(props);
-            }
-            return props;
+        Properties with(Property property) {
+            Utils.requireNonNull(property);
+            return new Properties(props | property.value());
         }
 
         Properties merge(Properties other) {
             Utils.requireNonNull(other);
-            var flags = DEFAULT;
-            if (isConstant() && other.isConstant()) {
-                flags |= CONSTANT;
+            return new Properties(merge(props, other));
+        }
+
+        Properties merge(TypeDescriptor[] arguments) {
+            Utils.requireNonNull(arguments);
+            if (arguments.length == 0) return this;
+            var props = this.props;
+            for (var argument : arguments) {
+                props = merge(props, argument.properties());
             }
-            if (isFull() && other.isFull()) {
-                flags |= FULL;
-            }
-            return new Properties(flags);
+            return new Properties(props);
         }
 
-        boolean isFull() {
-            return hasProperty(FULL);
-        }
-
-        boolean isConstant() {
-            return hasProperty(CONSTANT);
-        }
-
-        private boolean hasProperty(int property) {
-            return (property & props) != 0;
+        boolean is(Property property) {
+            return hasProperty(props, property);
         }
 
         @Override
@@ -108,23 +113,51 @@ public sealed interface TypeDescriptor permits ArrayDescriptor, ClassDescriptor,
             var builder = new StringBuilder();
             builder.append("{");
 
-            if (hasProperty(FULL)) {
-                builder.append("FULL, ");
-            }
-
-            if (hasProperty(CONSTANT)) {
-                builder.append("CONSTANT, ");
+            var addedOne = false;
+            for (int i = 1; i < Property.ALL.length; i++) {
+                var property = Property.ALL[i];
+                if (is(property)) {
+                    if (addedOne) {
+                        builder.append(", ");
+                    }
+                    addedOne = true;
+                    builder.append(property);
+                }
             }
 
             builder.append('}');
             return builder.toString();
         }
 
-        private static final int DEFAULT = 1;
+        private static int merge(int self, Properties other) {
+            var props = Property.DEFAULT.value();
+            for (int i = 1; i < Property.ALL.length; i++) {
+                var property = Property.ALL[i];
+                if (hasProperty(self, property) && hasProperty(other.props, property)) {
+                    props |= property.value();
+                }
+            }
+            return props;
+        }
 
-        private static final int FULL = 1 << 1;
+        private static boolean hasProperty(int props, Property property) {
+            return (property.value() & props) != 0;
+        }
 
-        private static final int CONSTANT = 1 << 2;
+        enum Property {
+            DEFAULT,
+            FULL,
+            CONSTANT,
+            ;
+
+            @Stable
+            private static final Property[] ALL = Property.values();
+
+            private int value() {
+                return 1 << ordinal();
+            }
+
+        }
 
     }
 
@@ -147,7 +180,9 @@ public sealed interface TypeDescriptor permits ArrayDescriptor, ClassDescriptor,
         Utils.requireNonNull(type);
         if (!(holder instanceof ClassDescriptorHolder h) || type.isHidden()) return null;
         var descriptor = h.$descriptor().viewAsSuper(type);
-        return descriptor == null || !descriptor.properties().isFull() ? null : descriptor;
+        return (descriptor != null && descriptor.properties().is(Properties.Property.FULL))
+                ? descriptor
+                : null;
     }
 
     /// Filters the partially raw descriptors
@@ -157,9 +192,9 @@ public sealed interface TypeDescriptor permits ArrayDescriptor, ClassDescriptor,
     /// @param <T> the type of the descriptor
     @PrototypeInternal
     static <T extends TypeDescriptor> Optional<T> filterPartialDescriptor(T descriptor) {
-        return descriptor == null || !descriptor.properties().isFull()
-                ? Optional.empty()
-                : Optional.of(descriptor);
+        return (descriptor != null && descriptor.properties().is(Properties.Property.FULL))
+                ? Optional.of(descriptor)
+                : Optional.empty();
     }
 
     //endregion

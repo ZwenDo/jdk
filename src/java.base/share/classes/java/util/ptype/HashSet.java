@@ -68,6 +68,41 @@ final class HashSet<E> {
         }
     }
 
+    <T> E computeIfAbsent(T element, Function<? super T, ? extends E> mapper) {
+        Utils.requireNonNull(element);
+        Utils.requireNonNull(mapper);
+        if (content.length <= size * 2) {
+            resize();
+            modCount++;
+        }
+
+        var hash = element.hashCode() & (content.length - 1);
+        var bucket = content[hash];
+
+        if (bucket == null) {
+            var value = mapper.apply(element);
+            content[hash] = new Node<>(value);
+            size++;
+            modCount++;
+            return value;
+        }
+
+        var current = bucket;
+        while (true) {
+            if (element.equals(keyExtractor.apply(current.value))) {
+                return current.value;
+            }
+            if (current.next == null) {
+                var value = mapper.apply(element);
+                current.next = new Node<>(value);
+                size++;
+                modCount++;
+                return value;
+            }
+            current = current.next;
+        }
+    }
+
     void addAll(HashSet<E> other) {
         Utils.requireNonNull(other);
         for (var it = other.iterator(); it.hasNext();) {

@@ -41,8 +41,12 @@ public final class ConstantTypeDescriptors {
         var flattenedTypeArguments = new TypeDescriptor[arguments.length];
         System.arraycopy(arguments, 0, flattenedTypeArguments, 0, flattenedTypeArguments.length);
 
-        var instance = ClassDescriptor.of(type, flattenedTypeArguments.length, flattenedTypeArguments);
-        if (!instance.properties().isConstant()) {
+        var instance = ClassDescriptor.ofConstant(
+                type,
+                flattenedTypeArguments.length,
+                flattenedTypeArguments
+        );
+        if (!instance.properties().is(TypeDescriptor.Properties.Property.CONSTANT)) {
             var message = Utils.join(instance, " should be constant.");
             throw new AssertionError(message);
         }
@@ -68,7 +72,7 @@ public final class ConstantTypeDescriptors {
         System.arraycopy(directSuperTypes, 0, descriptors, 0, descriptors.length);
 
         for (var descriptor : descriptors) {
-            if (!descriptor.properties().isConstant()) {
+            if (!descriptor.properties().is(TypeDescriptor.Properties.Property.CONSTANT)) {
                 throw new AssertionError("The descriptor is not constant.");
             }
         }
@@ -124,7 +128,7 @@ public final class ConstantTypeDescriptors {
             Object... typeArguments
     ) {
         if (typeArguments.length == 0) {
-            throw new IllegalArgumentException("Should have at least one argument");
+            return MethodDescriptor.of();
         }
         var args = new TypeDescriptor[typeArguments.length];
         System.arraycopy(typeArguments, 0, args, 0, typeArguments.length);

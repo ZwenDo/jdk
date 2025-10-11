@@ -22,6 +22,7 @@ public final class ArrayDescriptor implements TypeDescriptor {
     private ArrayDescriptor(TypeDescriptor componentType) {
         Utils.requireNonNull(componentType);
         this.componentType = componentType;
+        Analytics.log(this);
     }
 
     /// Creates a new array type.

@@ -1,6 +1,7 @@
 package java.util.ptype;
 
 import java.lang.reflect.*;
+import java.util.ptype.TypeDescriptor.Properties.Property;
 
 final class SuperDescriptorComputing {
 
@@ -106,7 +107,7 @@ final class SuperDescriptorComputing {
                 arguments.toArray(TO_ARRAY)
         );
 
-        return classDescriptor.properties().isConstant()
+        return classDescriptor.properties().is(Property.CONSTANT)
                 ? TypeDescriptorCaching.cache(classDescriptor)
                 : classDescriptor;
     }
@@ -114,14 +115,16 @@ final class SuperDescriptorComputing {
     private static TypeDescriptor mapArrayType(ClassDescriptor concrete, GenericArrayType type) {
         var componentType = mapType(concrete, type.getGenericComponentType());
         var arrayDescriptor = ArrayDescriptor.of(componentType);
-        if (arrayDescriptor.properties().isConstant()) {
+        if (arrayDescriptor.properties().is(Property.CONSTANT)) {
             arrayDescriptor = TypeDescriptorCaching.cache((ArrayDescriptor) arrayDescriptor);
         }
         return arrayDescriptor;
     }
 
     private static TypeDescriptor mapClass(Class<?> type) {
-        return TypeDescriptorCaching.cache(ClassDescriptor.of(type));
+        // This handles raw typee
+        var result = type.getTypeParameters().length > 0 ? ClassDescriptor.ofRaw(type) : ClassDescriptor.of(type);
+        return TypeDescriptorCaching.cache(result);
     }
 
     private static TypeDescriptor mapWildcard() {
@@ -179,25 +182,27 @@ final class SuperDescriptorComputing {
             ArrayList<TypeDescriptor> arguments,
             ClassDescriptor concrete,
             Type type,
-            Class<?> asClass
+            Class<?> current
     ) {
-        if (asClass.accessFlags().contains(AccessFlag.STATIC)) return;
+        if (current.accessFlags().contains(AccessFlag.STATIC)) return;
 
-        if (asClass.getEnclosingMethod() != null) {
-            addEnclosingMethod(arguments, concrete, asClass.getEnclosingMethod());
-            if (asClass.getEnclosingMethod().accessFlags().contains(AccessFlag.STATIC)) return;
+        var enclosingMethod = ReflectionUtils.enclosingMethod(current);
+        if (enclosingMethod != null) {
+            addEnclosingMethod(arguments, concrete, enclosingMethod);
+            if (enclosingMethod.accessFlags().contains(AccessFlag.STATIC)) return;
         }
 
-        if (asClass.getEnclosingConstructor() != null) {
-            addEnclosingMethod(arguments, concrete, asClass.getEnclosingConstructor());
-            if (asClass.getEnclosingConstructor().accessFlags().contains(AccessFlag.STATIC)) return;
+        // Special case for classes defined in blocks or field initializers
+        if (enclosingMethod == null && !current.isMemberClass()) {
+            var annotation = current.getAnnotation(NestedClassMetadata.class);
+            if (annotation == null || annotation.isStatic()) return;
         }
 
-        if (asClass.getEnclosingClass() != null) {
+        if (current.getEnclosingClass() != null) {
             if ((type instanceof ParameterizedType parameterizedType) && parameterizedType.getOwnerType() != null) {
                 addEnclosingClass(arguments, concrete, parameterizedType.getOwnerType());
             } else {
-                addEnclosingClass(arguments, concrete, asClass.getEnclosingClass());
+                addEnclosingClass(arguments, concrete, current.getEnclosingClass());
             }
         }
     }

@@ -233,6 +233,8 @@ public class Symtab {
     public final Type superTypeMappingType;
     public final Type instrumentedAnnotationType;
     public final Type prototypeInternalAnnotationType;
+    public final Type nestedClassMetadataAnnotationType;
+    public final Attribute.Compound instrumentedAnnotation;
 
     public final Type stringConcatFactory;
     public final Type repeatableType;
@@ -647,6 +649,13 @@ public class Symtab {
         superTypeMappingType = enterClass("java.util.ptype.ComputeSuperFunction$SuperTypeMapping");
         instrumentedAnnotationType = enterClass("java.util.ptype.Instrumented");
         prototypeInternalAnnotationType = enterClass("java.util.ptype.PrototypeInternal");
+        nestedClassMetadataAnnotationType = enterClass("java.util.ptype.NestedClassMetadata");
+        instrumentedAnnotation = new Attribute.Compound(
+                instrumentedAnnotationType,
+                List.nil(),
+                null
+        );
+
 
         stringConcatFactory = enterClass("java.lang.invoke.StringConcatFactory");
         functionalInterfaceType = enterClass("java.lang.FunctionalInterface");

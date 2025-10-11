@@ -36,7 +36,7 @@ final class TypeDescriptorUtils {
 
     private static void appendClassDescriptorToBuilder(StringBuilder builder, ClassDescriptor classDescriptor) {
         if (classDescriptor.isRaw()) {
-            builder.append(classDescriptor.type().getSimpleName());
+            appendClassName(builder, classDescriptor.type());
             builder.append("<*raw*>");
             return;
         }
@@ -48,16 +48,22 @@ final class TypeDescriptorUtils {
         final var outerOffset = offset + currentTypeParamsCount;
 
         if (!current.accessFlags().contains(AccessFlag.STATIC)) {
-            var enclosingMethod = enclosingMethod(current);
+            var enclosingMethod = ReflectionUtils.enclosingMethod(current);
             var enclosingMethTypeParamsCount = 0;
-            var isEnclosingMethodStatic = false;
+            var processOuterClass = true;
 
             if (enclosingMethod != null) {
                 enclosingMethTypeParamsCount = enclosingMethod.getTypeParameters().length;
-                isEnclosingMethodStatic = enclosingMethod.accessFlags().contains(AccessFlag.STATIC);
+                processOuterClass = !enclosingMethod.accessFlags().contains(AccessFlag.STATIC);
             }
 
-            if (!isEnclosingMethodStatic) {
+            // Special case for classes defined in blocks or field initializers
+            if (enclosingMethod == null && !current.isMemberClass()) {
+                var annotation = current.getAnnotation(NestedClassMetadata.class);
+                processOuterClass = annotation != null && !annotation.isStatic();
+            }
+
+            if (processOuterClass) {
                 var enclosingClass = current.getEnclosingClass();
                 if (enclosingClass != null) {
                     appendClass(builder, classDescriptor, outerOffset + enclosingMethTypeParamsCount, enclosingClass);
@@ -72,7 +78,7 @@ final class TypeDescriptorUtils {
             }
         }
 
-        builder.append(current.getSimpleName());
+        appendClassName(builder, current);
         appendTypeArguments(builder, classDescriptor, currentTypeParamsCount, offset);
     }
 
@@ -92,11 +98,34 @@ final class TypeDescriptorUtils {
         }
         builder.append('>');
     }
-
-    private static Executable enclosingMethod(Class<?> current) {
-        var method = current.getEnclosingMethod();
-        if (method != null) return method;
-        return current.getEnclosingConstructor();
+    private static void appendClassName(StringBuilder builder, Class<?> type) {
+        var name = type.getSimpleName();
+        if (!name.isEmpty()) {
+            builder.append(name);
+        } else {
+            builder.append(type.getName());
+            builder.append('(');
+            var interfaces = type.getInterfaces();
+            if (interfaces.length == 0 || type.getSuperclass() != Object.class) {
+                builder.append(type.getSuperclass().getSimpleName());
+                if (interfaces.length > 1 || (interfaces.length == 1 && interfaces[0] != ClassDescriptorHolder.class)) {
+                    builder.append(" & ");
+                }
+            }
+            for (int i = 0; i < interfaces.length; i++) {
+                if (interfaces[i] == ClassDescriptorHolder.class) {
+                    continue;
+                }
+                builder.append(interfaces[i].getSimpleName());
+                if (i + 1 < interfaces.length) {
+                    if (interfaces[i + 1] == ClassDescriptorHolder.class) {
+                        break;
+                    }
+                    builder.append(" & ");
+                }
+            }
+            builder.append(")");
+        }
     }
 
     //endregion

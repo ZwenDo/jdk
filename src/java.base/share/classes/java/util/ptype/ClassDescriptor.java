@@ -4,6 +4,7 @@ package java.util.ptype;
 import jdk.internal.vm.annotation.Stable;
 import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
+import java.lang.reflect.AccessFlag;
 import java.lang.reflect.Type;
 import java.util.Optional;
 
@@ -30,6 +31,9 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     @Stable
     private Properties properties;
 
+    /// This field is used only once (and is a boolean) so we don't need the Stable annotation.
+    private final boolean constant;
+
     //endregion
 
     //region instantiation
@@ -37,6 +41,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     private ClassDescriptor(
             Class<?> type,
             int capturedTypeArgumentsStartIndex,
+            boolean isConstant,
             TypeDescriptor[] arguments
     ) {
         Utils.requireNonNull(arguments);
@@ -46,6 +51,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         this.type = type;
         this.capturedTypeArgumentsStartIndex = capturedTypeArgumentsStartIndex;
         this.arguments = arguments;
+        this.constant = isConstant;
     }
 
     /// Creates a new raw [ClassDescriptor].
@@ -55,7 +61,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     @PrototypeInternal
     public static ClassDescriptor ofRaw(Class<?> type) {
         Utils.requireNonNull(type);
-        return new ClassDescriptor(type, 0, RAW_TYPE_ARGUMENTS);
+        return new ClassDescriptor(type, 0, true, RAW_TYPE_ARGUMENTS);
     }
 
     /// Creates a new [ClassDescriptor].
@@ -65,7 +71,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     @PrototypeInternal
     public static ClassDescriptor of(Class<?> type) {
         Utils.requireNonNull(type);
-        return new ClassDescriptor(type, 0, EMPTY_ARRAY);
+        return new ClassDescriptor(type, 0, true, EMPTY_ARRAY);
     }
 
     /// Creates a new [ClassDescriptor].
@@ -83,7 +89,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         Utils.requireNonNull(type);
         Utils.requireNonNull(arg1);
         Utils.checkIndex(captureStart, 2);
-        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1});
+        return new ClassDescriptor(type, captureStart, false, new TypeDescriptor[]{arg1});
     }
 
     /// Creates a new [ClassDescriptor].
@@ -104,7 +110,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         Utils.requireNonNull(arg1);
         Utils.requireNonNull(arg2);
         Utils.checkIndex(captureStart, 3);
-        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1, arg2});
+        return new ClassDescriptor(type, captureStart, false, new TypeDescriptor[]{arg1, arg2});
     }
 
     /// Creates a new [ClassDescriptor].
@@ -128,7 +134,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         Utils.requireNonNull(arg2);
         Utils.requireNonNull(arg3);
         Utils.checkIndex(captureStart, 4);
-        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1, arg2, arg3});
+        return new ClassDescriptor(type, captureStart, false, new TypeDescriptor[]{arg1, arg2, arg3});
     }
 
     /// Creates a new [ClassDescriptor].
@@ -155,7 +161,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         Utils.requireNonNull(arg3);
         Utils.requireNonNull(arg4);
         Utils.checkIndex(captureStart, 5);
-        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1, arg2, arg3, arg4});
+        return new ClassDescriptor(type, captureStart, false, new TypeDescriptor[]{arg1, arg2, arg3, arg4});
     }
 
     /// Creates a new [ClassDescriptor].
@@ -185,7 +191,12 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         Utils.requireNonNull(arg4);
         Utils.requireNonNull(arg5);
         Utils.checkIndex(captureStart, 6);
-        return new ClassDescriptor(type, captureStart, new TypeDescriptor[]{arg1, arg2, arg3, arg4, arg5});
+        return new ClassDescriptor(
+                type,
+                captureStart,
+                false,
+                new TypeDescriptor[]{arg1, arg2, arg3, arg4, arg5}
+        );
     }
 
     /// Creates a new [ClassDescriptor].
@@ -195,25 +206,32 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     /// @param arguments    the type arguments
     /// @return the created descriptor
     @PrototypeInternal
-    public static ClassDescriptor of(
-            Class<?> type,
-            int captureStart,
-            TypeDescriptor... arguments
-    ) {
+    public static ClassDescriptor of(Class<?> type, int captureStart, TypeDescriptor... arguments) {
         Utils.requireNonNull(type);
         Utils.requireNonNull(arguments);
         Utils.checkIndex(captureStart, arguments.length + 1);
+        return of(type, captureStart, false, arguments);
+    }
 
-        if (arguments.length == 0) {
-            return of(type);
-        }
+    static ClassDescriptor ofConstant(Class<?> type, int captureStart, TypeDescriptor[] arguments) {
+        Utils.requireNonNull(type);
+        Utils.requireNonNull(arguments);
+        Utils.checkIndex(captureStart, arguments.length + 1);
+        return of(type, captureStart, true, arguments);
+    }
 
+    private static ClassDescriptor of(
+            Class<?> type,
+            int captureStart,
+            boolean constant,
+            TypeDescriptor[] arguments
+    ) {
         var array = new TypeDescriptor[arguments.length];
         for (int i = 0; i < arguments.length; i++) {
             array[i] = Utils.requireNonNull(arguments[i]);
         }
 
-        return new ClassDescriptor(type, captureStart, array);
+        return new ClassDescriptor(type, captureStart, constant, array);
     }
 
     //endregion
@@ -254,7 +272,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         if (javaType != null) return javaType;
 
         // raw and plain classes
-        if (isRaw() || capturedTypeArgumentsStartIndex == 0) {
+        if (!hasArgument()) {
             javaType = type;
             return javaType;
         }
@@ -266,11 +284,14 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
     @Override
     public Properties properties() {
         if (properties == null) {
-            var props = new Properties(
-                    arguments != RAW_TYPE_ARGUMENTS,
-                    true
-            );
-            this.properties = Properties.computeTransitiveFlags(arguments, props);
+            var props = new Properties();
+            if (arguments != RAW_TYPE_ARGUMENTS) {
+                props = props.with(Properties.Property.FULL);
+            }
+            if (constant) {
+                props = props.with(Properties.Property.CONSTANT);
+            }
+            this.properties = props.merge(arguments);
         }
         return properties;
     }
@@ -338,14 +359,14 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
 
     private Type makeType(Class<?> current, int offset) {
         var typeParametersCount = current.getTypeParameters().length;
+
         Type outer = null;
-        if (current.getEnclosingMethod() == null && current.getEnclosingMethod() == null) {
+        if (current.isMemberClass() && !current.accessFlags().contains(AccessFlag.STATIC)) {
             var enclosingClass = current.getEnclosingClass();
             if (enclosingClass != null) {
                 outer = makeType(enclosingClass, offset + typeParametersCount);
             }
         }
-
 
         var typeArguments = new Type[typeParametersCount];
         for (var i = 0; i < typeParametersCount; i++) {

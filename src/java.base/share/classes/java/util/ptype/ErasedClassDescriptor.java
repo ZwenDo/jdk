@@ -12,7 +12,7 @@ public final class ErasedClassDescriptor implements TypeDescriptor {
     private static final ErasedClassDescriptor INSTANCE = new ErasedClassDescriptor();
 
     @Stable
-    private final Properties properties = new Properties(false, true);
+    private final Properties properties = new Properties(Properties.Property.CONSTANT);
 
     /// Gets the instance of erased type.
     ///
