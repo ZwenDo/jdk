@@ -12,7 +12,7 @@ public final class HiddenClassDescriptor implements DerivedClassDescriptor {
     private final ClassDescriptor[] directSuperTypes;
 
     @Stable
-    HashMap<Class<?>, ClassDescriptor> superTypes;
+    ImmutableHashMap<Class<?>, ClassDescriptor> superTypes;
 
     //endregion
 

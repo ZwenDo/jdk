@@ -140,6 +140,18 @@ public sealed interface TypeDescriptor permits ArrayDescriptor, ClassDescriptor,
             return props;
         }
 
+        @Override
+        public boolean equals(Object object) {
+            if (!(object instanceof Properties that)) return false;
+
+            return props == that.props;
+        }
+
+        @Override
+        public int hashCode() {
+            return props;
+        }
+
         private static boolean hasProperty(int props, Property property) {
             return (property.value() & props) != 0;
         }

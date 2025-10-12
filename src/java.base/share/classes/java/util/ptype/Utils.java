@@ -34,33 +34,55 @@ final class Utils {
     }
 
     public static boolean arrayEquals(Object[] a, Object[] a2) {
-        if (a==a2)
+        return arrayEquals(a, a2, DEFAULT);
+    }
+
+    public static int arrayHashCode(Object[] array) {
+        return arrayHashCode(array, DEFAULT);
+    }
+
+    public static <T> boolean arrayEquals(T[] array, T[] array2, Equivalence<? super T> equivalence) {
+        Utils.requireNonNull(equivalence);
+        if (array == array2)
             return true;
-        if (a==null || a2==null)
+        if (array == null || array2 == null)
             return false;
 
-        int length = a.length;
-        if (a2.length != length)
+        int length = array.length;
+        if (array2.length != length)
             return false;
 
-        for (int i=0; i<length; i++) {
-            if (!Utils.equals(a[i], a2[i]))
+        for (int i = 0; i < length; i++) {
+            if (!equivalence.equals(array[i], array2[i]))
                 return false;
         }
 
         return true;
     }
 
-    public static int arrayHashCode(Object[] array) {
+    public static <T> int arrayHashCode(T[] array, Equivalence<? super T> equivalence) {
+        Utils.requireNonNull(equivalence);
         if (array == null) return 0;
 
         var result = 1;
         for (var element : array) {
-            result = 31 * result + Utils.hashCode(element);
+            result = 31 * result + equivalence.hash(element);
         }
 
         return result;
     }
+
+    private static final Equivalence<Object> DEFAULT = new Equivalence<>() {
+        @Override
+        public int hash(Object obj) {
+            return Utils.hashCode(obj);
+        }
+
+        @Override
+        public boolean equals(Object obj, Object other) {
+            return Utils.equals(obj, obj);
+        }
+    };
 
     private Utils() {
         throw new AssertionError();

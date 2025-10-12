@@ -6,7 +6,6 @@ import java.util.NoSuchElementException;
 
 /// HashSet.
 /// @param <E> the type of elements maintained by this set
-
 @PrototypeInternal
 final class HashSet<E> {
 
@@ -18,16 +17,16 @@ final class HashSet<E> {
     private int modCount;
 
     @Stable
-    private final Function<? super E, Object> keyExtractor;
+    private final Equivalence<? super E> equivalence;
 
     /// Creates a new, empty set.
-    @SuppressWarnings("unchecked")
     public HashSet() {
-        this((Function<? super E, Object>) DEFAULT_EXTRACTOR);
+        this(Equivalence.natural());
     }
 
-    public HashSet(Function<? super E, Object> keyExtractor) {
-        this.keyExtractor = keyExtractor;
+    public HashSet(Equivalence<? super E> equivalence) {
+        Utils.requireNonNull(equivalence);
+        this.equivalence = equivalence;
     }
 
     /// Adds an element to the set if it is not already present. If the element is already present, the existing element
@@ -42,8 +41,7 @@ final class HashSet<E> {
             modCount++;
         }
 
-        var compared = keyExtractor.apply(element);
-        var hash = compared.hashCode() & (content.length - 1);
+        var hash = equivalence.hash(element) & (content.length - 1);
         var bucket = content[hash];
 
         if (bucket == null) {
@@ -55,7 +53,7 @@ final class HashSet<E> {
 
         var current = bucket;
         while (true) {
-            if (compared.equals(keyExtractor.apply(current.value))) {
+            if (equivalence.equals(element, current.value)) {
                 return current.value;
             }
             if (current.next == null) {
@@ -68,7 +66,9 @@ final class HashSet<E> {
         }
     }
 
-    <T> E computeIfAbsent(T element, Function<? super T, ? extends E> mapper) {
+    /// Safety: Called must ensure that for any `x` of type `E` the invariant
+    /// `tEquivalence.equal(element, x) == equivalence.equal(mapper.apply(element), x)` is respected.
+    <T> E computeIfAbsent(T element, Equivalence<T> tEquivalence, Function<? super T, ? extends E> mapper) {
         Utils.requireNonNull(element);
         Utils.requireNonNull(mapper);
         if (content.length <= size * 2) {
@@ -76,7 +76,7 @@ final class HashSet<E> {
             modCount++;
         }
 
-        var hash = element.hashCode() & (content.length - 1);
+        var hash = tEquivalence.hash(element) & (content.length - 1);
         var bucket = content[hash];
 
         if (bucket == null) {
@@ -89,7 +89,7 @@ final class HashSet<E> {
 
         var current = bucket;
         while (true) {
-            if (element.equals(keyExtractor.apply(current.value))) {
+            if (equivalence.equals(current.value, element)) {
                 return current.value;
             }
             if (current.next == null) {
@@ -199,7 +199,7 @@ final class HashSet<E> {
                 current = current.next;
                 toAdd.next = null;
 
-                var index = toAdd.value.hashCode() & (newArray.length - 1);
+                var index = equivalence.hash(toAdd.value) & (newArray.length - 1);
                 var bucketNode = newArray[index];
                 if (bucketNode == null) { // there is no bucket, just add the node at the index
                     newArray[index] = toAdd;
@@ -221,16 +221,26 @@ final class HashSet<E> {
         public Node(E value) {
             this.value = value;
         }
+
+        @Override
+        public String toString() {
+            var current = this;
+            var builder = new StringBuilder();
+            builder.append('[');
+            while (current != null) {
+                builder.append(current.value);
+                if (current.next != null) {
+                    builder.append(", ");
+                }
+                current = current.next;
+            }
+            builder.append(']');
+            return builder.toString();
+        }
+
     }
 
     @SuppressWarnings({"rawtypes"})
     private static final Node<?>[] SENTINEL = (Node<?>[]) new Node[0];
-
-    private static final Function<?, Object> DEFAULT_EXTRACTOR = new Function<Object, Object>() {
-        @Override
-        public Object apply(Object input) {
-            return input;
-        }
-    };
 
 }

@@ -105,6 +105,10 @@ public final class MethodDescriptor implements TypeDescriptorAccessor {
         return Utils.arrayHashCode(arguments);
     }
 
+    TypeDescriptor[] arguments() {
+        return arguments;
+    }
+
     private static final MethodDescriptor RAW = new MethodDescriptor(new TypeDescriptor[0]);
 
 }

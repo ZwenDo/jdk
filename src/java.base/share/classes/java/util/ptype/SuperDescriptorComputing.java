@@ -5,18 +5,18 @@ import java.util.ptype.TypeDescriptor.Properties.Property;
 
 final class SuperDescriptorComputing {
 
-    static HashMap<Class<?>, ClassDescriptor> buildSuperMap(ClassDescriptor concrete) {
+    static ImmutableHashMap<Class<?>, ClassDescriptor> buildSuperMap(ClassDescriptor concrete) {
         Utils.requireNonNull(concrete);
         var set = buildRegularClassMap(concrete);
-        return HashMap.superTypeMap(set);
+        return ImmutableHashMap.superTypeMap(set);
     }
 
-    static HashMap<Class<?>, ClassDescriptor> buildSuperMap(HiddenClassDescriptor concrete) {
+    static ImmutableHashMap<Class<?>, ClassDescriptor> buildSuperMap(HiddenClassDescriptor concrete) {
         Utils.requireNonNull(concrete);
         return buildHiddenClassMap(concrete);
     }
 
-    private static HashMap<Class<?>, ClassDescriptor> buildHiddenClassMap(HiddenClassDescriptor concrete) {
+    private static ImmutableHashMap<Class<?>, ClassDescriptor> buildHiddenClassMap(HiddenClassDescriptor concrete) {
         var finalSet = new HashSet<>(EXTRACTOR);
         concrete.forEachDirectSuperType(new Consumer<ClassDescriptor>() {
             @Override
@@ -24,7 +24,7 @@ final class SuperDescriptorComputing {
                 finalSet.addAll(buildRegularClassMap(concrete));
             }
         });
-        return HashMap.superTypeMap(finalSet);
+        return ImmutableHashMap.superTypeMap(finalSet);
     }
 
     private static HashSet<ClassDescriptor> buildRegularClassMap(ClassDescriptor concrete) {
@@ -41,7 +41,7 @@ final class SuperDescriptorComputing {
                 continue;
             }
 
-            superDescriptor.superTypes = HashMap.superTypeMap(mappings);
+            superDescriptor.superTypes = ImmutableHashMap.superTypeMap(mappings);
             allMappings.add(superDescriptor);
         }
 
@@ -52,7 +52,7 @@ final class SuperDescriptorComputing {
 
             // only add if the type is parameterized
             if (superDescriptor.hasArgument()) {
-                superDescriptor.superTypes = HashMap.superTypeMap(mappings);
+                superDescriptor.superTypes = ImmutableHashMap.superTypeMap(mappings);
                 allMappings.add(superDescriptor);
             }
         }
@@ -101,30 +101,56 @@ final class SuperDescriptorComputing {
         // this will add all the enclosing type arguments
         addEnclosingElements(arguments, concrete, parameterizedType);
 
-        var classDescriptor = ClassDescriptor.of(
+        // by default a type cannot be constant if it has captures.
+        var isConstant = captureStart == arguments.size();
+        if (isConstant) { // if it hasn't any capture, we still need to check it if uses any type parameter.
+            for (var actualTypeArgument : parameterizedType.getActualTypeArguments()) {
+                if (actualTypeArgument instanceof TypeVariable<?>) {
+                    isConstant = false;
+                    break;
+                }
+            }
+        }
+
+        var classDescriptor = ClassDescriptor.ofInternal(
                 (Class<?>) parameterizedType.getRawType(),
                 captureStart,
+                isConstant,
                 arguments.toArray(TO_ARRAY)
         );
 
-        return classDescriptor.properties().is(Property.CONSTANT)
-                ? TypeDescriptorCaching.cache(classDescriptor)
-                : classDescriptor;
+        if (!classDescriptor.properties().is(Property.CONSTANT)) {
+            Analytics.report(classDescriptor, Analytics.Kind.USED);
+            return classDescriptor;
+        }
+
+        var actual = TypeDescriptorCaching.cache(classDescriptor);
+        Analytics.report(classDescriptor, classDescriptor == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        return actual;
     }
 
     private static TypeDescriptor mapArrayType(ClassDescriptor concrete, GenericArrayType type) {
         var componentType = mapType(concrete, type.getGenericComponentType());
-        var arrayDescriptor = ArrayDescriptor.of(componentType);
-        if (arrayDescriptor.properties().is(Property.CONSTANT)) {
-            arrayDescriptor = TypeDescriptorCaching.cache((ArrayDescriptor) arrayDescriptor);
+        var descriptor = ArrayDescriptor.of(componentType);
+        if (!(descriptor instanceof ArrayDescriptor arrayDescriptor)) {
+            return descriptor;
         }
-        return arrayDescriptor;
+        if (!arrayDescriptor.properties().is(Property.CONSTANT)) {
+            Analytics.report(arrayDescriptor, Analytics.Kind.USED);
+            return descriptor;
+        }
+        var actual = TypeDescriptorCaching.cache(arrayDescriptor);
+        Analytics.report(actual, actual == arrayDescriptor ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        return actual;
     }
 
     private static TypeDescriptor mapClass(Class<?> type) {
         // This handles raw typee
-        var result = type.getTypeParameters().length > 0 ? ClassDescriptor.ofRaw(type) : ClassDescriptor.of(type);
-        return TypeDescriptorCaching.cache(result);
+        var result = type.getTypeParameters().length > 0 ? ClassDescriptor.ofRawInternal(type) : ClassDescriptor.ofInternal(type);
+        // here we do not need to report anything to analytics, the caching class will do it for us
+        var actual = TypeDescriptorCaching.cache(result);
+        Analytics.report(result, result == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        return actual;
     }
 
     private static TypeDescriptor mapWildcard() {
@@ -278,10 +304,16 @@ final class SuperDescriptorComputing {
         return type.isAnnotationPresent(Instrumented.class);
     }
 
-    private static final Function<ClassDescriptor, Object> EXTRACTOR = new Function<ClassDescriptor, Object>() {
+    private static final Equivalence<ClassDescriptor> EXTRACTOR = new Equivalence<>() {
         @Override
-        public Object apply(ClassDescriptor input) {
-            return input.type();
+        public int hash(ClassDescriptor obj) {
+            return obj.type().hashCode();
+        }
+
+        @Override
+        public boolean equals(ClassDescriptor obj, Object other) {
+            if (!(other instanceof ClassDescriptor descriptor)) return false;
+            return obj.type().equals(descriptor.type());
         }
     };
 

@@ -34,23 +34,28 @@ public final class ConstantTypeDescriptors {
 
         if (arguments.length == 0) {
             var isRaw = (flags & FLAG_RAW) != 0;
-            var instance = isRaw ? ClassDescriptor.ofRaw(type) : ClassDescriptor.of(type);
-            return TypeDescriptorCaching.cache(instance);
+            var instance = isRaw ? ClassDescriptor.ofRawInternal(type) : ClassDescriptor.ofInternal(type);
+            var actual = TypeDescriptorCaching.cache(instance);
+            Analytics.report(instance, instance == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+            return actual;
         }
 
         var flattenedTypeArguments = new TypeDescriptor[arguments.length];
         System.arraycopy(arguments, 0, flattenedTypeArguments, 0, flattenedTypeArguments.length);
 
-        var instance = ClassDescriptor.ofConstant(
+        var instance = ClassDescriptor.ofInternal(
                 type,
                 flattenedTypeArguments.length,
+                true,
                 flattenedTypeArguments
         );
         if (!instance.properties().is(TypeDescriptor.Properties.Property.CONSTANT)) {
             var message = Utils.join(instance, " should be constant.");
             throw new AssertionError(message);
         }
-        return TypeDescriptorCaching.cache(instance);
+        var actual = TypeDescriptorCaching.cache(instance);
+        Analytics.report(instance, instance == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        return actual;
     }
 
     /// Creates a new constant [HiddenClassDescriptor].
@@ -96,8 +101,13 @@ public final class ConstantTypeDescriptors {
     ) {
         Utils.requireNonNull(componentType);
         var componentDesc = (TypeDescriptor) componentType;
-        // we can safely cast, as to return erased, the component must have been extract, but here it is constant.
-        return TypeDescriptorCaching.cache((ArrayDescriptor) ArrayDescriptor.of(componentDesc));
+        // we can safely cast, as to return erased, the component must have been extracted, because you can't write
+        // *erased*[]. The only thing you can do is desc = List*raw* and then ArrayDescriptor.of(desc[0]).
+        // However, when building a descriptor from an extraction, you will never end up in this method.
+        var instance = (ArrayDescriptor) ArrayDescriptor.of(componentDesc);
+        var actual = TypeDescriptorCaching.cache(instance);
+        Analytics.report(instance, instance == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        return actual;
     }
 
     /// Returns the erased type descriptor.
@@ -132,7 +142,10 @@ public final class ConstantTypeDescriptors {
         }
         var args = new TypeDescriptor[typeArguments.length];
         System.arraycopy(typeArguments, 0, args, 0, typeArguments.length);
-        return TypeDescriptorCaching.cache(MethodDescriptor.of(args));
+        var instance = MethodDescriptor.of(args);
+        var actual = TypeDescriptorCaching.cache(instance);
+        Analytics.report(instance, instance == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        return actual;
     }
 
     private static Class<?> classFromName(MethodHandles.Lookup lookup, String name) {
