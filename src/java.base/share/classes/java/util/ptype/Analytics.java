@@ -17,19 +17,43 @@ final class Analytics {
     @Stable
     private static int shouldLog;
 
-    public static void report(MethodDescriptor descriptor, Kind kind) {
-        report(METHOD_DESCRIPTORS, descriptor, kind);
+    public static void reportCreation(MethodDescriptor descriptor) {
+        report(METHOD_DESCRIPTORS, descriptor, Kind.CREATED);
     }
 
-    public static void report(ClassDescriptor descriptor, Kind kind) {
-        report(CLASS_DESCRIPTORS, descriptor, kind);
+    public static void reportUsage(MethodDescriptor descriptor) {
+        report(METHOD_DESCRIPTORS, descriptor, Kind.USED);
     }
 
-    public static void report(ArrayDescriptor descriptor, Kind kind) {
-        report(ARRAY_DESCRIPTORS, descriptor, kind);
+    public static void reportCaching(MethodDescriptor descriptor, MethodDescriptor cached) {
+        reportCaching(METHOD_DESCRIPTORS, descriptor, cached);
     }
 
-    public enum Kind {
+    public static void reportCreation(ClassDescriptor descriptor) {
+        report(CLASS_DESCRIPTORS, descriptor, Kind.CREATED);
+    }
+
+    public static void reportUsage(ClassDescriptor descriptor) {
+        report(CLASS_DESCRIPTORS, descriptor, Kind.USED);
+    }
+
+    public static void reportCaching(ClassDescriptor descriptor, ClassDescriptor cached) {
+        reportCaching(CLASS_DESCRIPTORS, descriptor, cached);
+    }
+
+    public static void reportCreation(ArrayDescriptor descriptor) {
+        report(ARRAY_DESCRIPTORS, descriptor, Kind.CREATED);
+    }
+
+    public static void reportUsage(ArrayDescriptor descriptor) {
+        report(ARRAY_DESCRIPTORS, descriptor, Kind.USED);
+    }
+
+    public static void reportCaching(ArrayDescriptor descriptor, ArrayDescriptor cached) {
+        reportCaching(ARRAY_DESCRIPTORS, descriptor, cached);
+    }
+
+    private enum Kind {
         /// This is the most common kind. A descriptor has been created, and we log from its constructor
         CREATED,
         /// The descriptor will be used, either its a dynamic descriptor, or the first instance of a constant
@@ -37,6 +61,11 @@ final class Analytics {
         USED,
         /// This descriptor will be discarded because its constant and the same descriptor already exists in the cache.
         DISCARDED,
+    }
+
+    private static <T> void reportCaching(HashMap<T, DescriptorAnalytics<T>> cache, T descriptor, T cached) {
+        if (shouldLog == -1) return;
+        report(cache, descriptor, descriptor == cached ? Kind.USED : Kind.DISCARDED);
     }
 
     private static <T> void report(HashMap<T, DescriptorAnalytics<T>> cache, T descriptor, Kind kind) {

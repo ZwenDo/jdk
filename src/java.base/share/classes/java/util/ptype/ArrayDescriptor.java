@@ -22,7 +22,7 @@ public final class ArrayDescriptor implements TypeDescriptor {
     private ArrayDescriptor(TypeDescriptor componentType) {
         Utils.requireNonNull(componentType);
         this.componentType = componentType;
-        Analytics.report(this, Analytics.Kind.CREATED);
+        Analytics.reportCreation(this);
     }
 
     /// Creates a new array type.
@@ -36,8 +36,15 @@ public final class ArrayDescriptor implements TypeDescriptor {
             return ErasedClassDescriptor.instance();
         }
         var created = new ArrayDescriptor(componentType);
-        Analytics.report(created, Analytics.Kind.USED);
+        Analytics.reportUsage(created);
         return created;
+    }
+
+    static TypeDescriptor ofInternal(TypeDescriptor componentType) {
+        Utils.requireNonNull(componentType);
+        return componentType == ErasedClassDescriptor.instance()
+                ? ErasedClassDescriptor.instance()
+                : new ArrayDescriptor(componentType);
     }
 
     /// Gets the component type of this array type.

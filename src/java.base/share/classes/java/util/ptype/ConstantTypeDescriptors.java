@@ -36,7 +36,7 @@ public final class ConstantTypeDescriptors {
             var isRaw = (flags & FLAG_RAW) != 0;
             var instance = isRaw ? ClassDescriptor.ofRawInternal(type) : ClassDescriptor.ofInternal(type);
             var actual = TypeDescriptorCaching.cache(instance);
-            Analytics.report(instance, instance == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+            Analytics.reportCaching(instance, actual);
             return actual;
         }
 
@@ -54,7 +54,7 @@ public final class ConstantTypeDescriptors {
             throw new AssertionError(message);
         }
         var actual = TypeDescriptorCaching.cache(instance);
-        Analytics.report(instance, instance == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        Analytics.reportCaching(instance, actual);
         return actual;
     }
 
@@ -104,9 +104,9 @@ public final class ConstantTypeDescriptors {
         // we can safely cast, as to return erased, the component must have been extracted, because you can't write
         // *erased*[]. The only thing you can do is desc = List*raw* and then ArrayDescriptor.of(desc[0]).
         // However, when building a descriptor from an extraction, you will never end up in this method.
-        var instance = (ArrayDescriptor) ArrayDescriptor.of(componentDesc);
+        var instance = (ArrayDescriptor) ArrayDescriptor.ofInternal(componentDesc);
         var actual = TypeDescriptorCaching.cache(instance);
-        Analytics.report(instance, instance == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        Analytics.reportCaching(instance, actual);
         return actual;
     }
 
@@ -142,9 +142,9 @@ public final class ConstantTypeDescriptors {
         }
         var args = new TypeDescriptor[typeArguments.length];
         System.arraycopy(typeArguments, 0, args, 0, typeArguments.length);
-        var instance = MethodDescriptor.of(args);
+        var instance = MethodDescriptor.ofInternal(args);
         var actual = TypeDescriptorCaching.cache(instance);
-        Analytics.report(instance, instance == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        Analytics.reportCaching(instance, actual);
         return actual;
     }
 
@@ -172,17 +172,6 @@ public final class ConstantTypeDescriptors {
                 return MethodType.fromMethodDescriptorString(name, lookup.lookupClass().getClassLoader())
                         .returnType();
         }
-    }
-
-    private static <T> T extractArg(Object[] args, int index, Class<T> type) {
-        if (index >= args.length) {
-            throw new IllegalArgumentException("missing argument");
-        }
-        Object result = Utils.requireNonNull(args[index]);
-        if (!type.isInstance(result)) {
-            throw new IllegalArgumentException("argument has wrong type");
-        }
-        return type.cast(result);
     }
 
     private ConstantTypeDescriptors() {

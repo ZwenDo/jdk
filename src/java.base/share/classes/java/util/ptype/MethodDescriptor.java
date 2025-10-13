@@ -11,6 +11,7 @@ public final class MethodDescriptor implements TypeDescriptorAccessor {
     private MethodDescriptor(TypeDescriptor[] arguments) {
         Utils.requireNonNull(arguments);
         this.arguments = arguments;
+        Analytics.reportCreation(this);
     }
 
     /// Creates a new instance.
@@ -28,7 +29,9 @@ public final class MethodDescriptor implements TypeDescriptorAccessor {
     @PrototypeInternal
     public static MethodDescriptor of(TypeDescriptor arg1) {
         Utils.requireNonNull(arg1);
-        return new MethodDescriptor(new TypeDescriptor[]{arg1});
+        var instance = new MethodDescriptor(new TypeDescriptor[]{arg1});
+        Analytics.reportUsage(instance);
+        return instance;
     }
 
     /// Creates a new instance.
@@ -40,7 +43,9 @@ public final class MethodDescriptor implements TypeDescriptorAccessor {
     public static MethodDescriptor of(TypeDescriptor arg1, TypeDescriptor arg2) {
         Utils.requireNonNull(arg1);
         Utils.requireNonNull(arg2);
-        return new MethodDescriptor(new TypeDescriptor[] {arg1, arg2});
+        var instance = new MethodDescriptor(new TypeDescriptor[] {arg1, arg2});
+        Analytics.reportUsage(instance);
+        return instance;
     }
 
     /// Creates a new instance.
@@ -54,7 +59,9 @@ public final class MethodDescriptor implements TypeDescriptorAccessor {
         Utils.requireNonNull(arg1);
         Utils.requireNonNull(arg2);
         Utils.requireNonNull(arg3);
-        return new MethodDescriptor(new TypeDescriptor[] {arg1, arg2, arg3});
+        var instance = new MethodDescriptor(new TypeDescriptor[] {arg1, arg2, arg3});
+        Analytics.reportUsage(instance);
+        return instance;
     }
 
     /// Creates a new instance.
@@ -63,6 +70,13 @@ public final class MethodDescriptor implements TypeDescriptorAccessor {
     /// @return the created instance
     @PrototypeInternal
     public static MethodDescriptor of(TypeDescriptor... args) {
+        Utils.requireNonNull(args);
+        var instance = ofInternal(args);
+        Analytics.reportUsage(instance);
+        return instance;
+    }
+
+    static MethodDescriptor ofInternal(TypeDescriptor[] args) {
         Utils.requireNonNull(args);
         var copy = new TypeDescriptor[args.length];
         for (int i = 0; i < args.length; i++) {
@@ -103,10 +117,6 @@ public final class MethodDescriptor implements TypeDescriptorAccessor {
     @Override
     public int hashCode() {
         return Utils.arrayHashCode(arguments);
-    }
-
-    TypeDescriptor[] arguments() {
-        return arguments;
     }
 
     private static final MethodDescriptor RAW = new MethodDescriptor(new TypeDescriptor[0]);

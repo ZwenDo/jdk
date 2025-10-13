@@ -120,36 +120,35 @@ final class SuperDescriptorComputing {
         );
 
         if (!classDescriptor.properties().is(Property.CONSTANT)) {
-            Analytics.report(classDescriptor, Analytics.Kind.USED);
+            Analytics.reportUsage(classDescriptor);
             return classDescriptor;
         }
 
         var actual = TypeDescriptorCaching.cache(classDescriptor);
-        Analytics.report(classDescriptor, classDescriptor == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        Analytics.reportCaching(classDescriptor, actual);
         return actual;
     }
 
     private static TypeDescriptor mapArrayType(ClassDescriptor concrete, GenericArrayType type) {
         var componentType = mapType(concrete, type.getGenericComponentType());
-        var descriptor = ArrayDescriptor.of(componentType);
+        var descriptor = ArrayDescriptor.ofInternal(componentType);
         if (!(descriptor instanceof ArrayDescriptor arrayDescriptor)) {
             return descriptor;
         }
         if (!arrayDescriptor.properties().is(Property.CONSTANT)) {
-            Analytics.report(arrayDescriptor, Analytics.Kind.USED);
+            Analytics.reportUsage(arrayDescriptor);
             return descriptor;
         }
         var actual = TypeDescriptorCaching.cache(arrayDescriptor);
-        Analytics.report(actual, actual == arrayDescriptor ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        Analytics.reportCaching(arrayDescriptor, actual);
         return actual;
     }
 
     private static TypeDescriptor mapClass(Class<?> type) {
         // This handles raw typee
         var result = type.getTypeParameters().length > 0 ? ClassDescriptor.ofRawInternal(type) : ClassDescriptor.ofInternal(type);
-        // here we do not need to report anything to analytics, the caching class will do it for us
         var actual = TypeDescriptorCaching.cache(result);
-        Analytics.report(result, result == actual ? Analytics.Kind.USED : Analytics.Kind.DISCARDED);
+        Analytics.reportCaching(result, actual);
         return actual;
     }
 
