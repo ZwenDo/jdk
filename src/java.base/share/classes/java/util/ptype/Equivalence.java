@@ -8,7 +8,7 @@ interface Equivalence<T> {
 
     @SuppressWarnings("unchecked")
     static <T> Equivalence<T> natural() {
-        final class Holder {
+        class Holder {
             private static final Equivalence<?> INSTANCE = new Equivalence<>() {
                 @Override
                 public int hash(Object obj) {
@@ -20,6 +20,11 @@ interface Equivalence<T> {
                 public boolean equals(Object obj, Object other) {
                     Utils.requireNonNull(obj);
                     return obj.equals(other);
+                }
+
+                @Override
+                public String toString() {
+                    return "NaturalEquivalence";
                 }
             };
         }

@@ -335,6 +335,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         if (!(obj instanceof ClassDescriptor other)) return false;
         return type.equals(other.type)
                 && capturedTypeArgumentsStartIndex == other.capturedTypeArgumentsStartIndex
+                && properties().equals(other.properties())
                 && Utils.arrayEquals(arguments, other.arguments);
     }
 
@@ -343,6 +344,7 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
         var hash = 1;
         hash = 31 * hash + type.hashCode();
         hash = 31 * hash + capturedTypeArgumentsStartIndex;
+        hash = 31 * hash + properties().hashCode();
         hash = 31 * hash + Utils.arrayHashCode(arguments);
         return hash;
     }
@@ -388,14 +390,6 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
 
     int capturedTypeArgumentsCount() {
         return arguments.length - capturedTypeArgumentsStartIndex;
-    }
-
-    int capturedTypeArgumentsStartIndex() {
-        return capturedTypeArgumentsStartIndex;
-    }
-
-    TypeDescriptor[] arguments() {
-        return arguments;
     }
 
     private ClassDescriptor superDescriptor(Class<?> type) {

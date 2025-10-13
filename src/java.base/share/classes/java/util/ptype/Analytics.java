@@ -98,6 +98,52 @@ final class Analytics {
             this.stream = stream;
         }
 
+        public void logResult() {
+            logClassDescriptors();
+        }
+
+        private void logClassDescriptors() {
+            wln("####################################### CLASS DESCRIPTORS #######################################");
+            wln("Descriptor;Created;Used;Discarded;Raw;Full;Constant;Arguments Count;Type Arguments Count;Captured Arguments Count");
+
+            for (var it = CLASS_DESCRIPTORS.iterator(); it.hasNext(); ) {
+                var analytics = it.next();
+                var classDescriptor = analytics.descriptor;
+
+                if (analytics.created != analytics.used + analytics.discarded) {
+                    var message = Utils.join(
+                            classDescriptor,
+                            " has abnormal usage statistics: ", analytics.created,
+                            " != ", analytics.used,
+                            " + ", analytics.discarded,
+                            " (= ", analytics.used + analytics.discarded, ")"
+                    );
+                    System.err.println(message);
+                }
+                if (analytics.used == 0) {
+                    var message = Utils.join(
+                            classDescriptor,
+                            " has never been used: ", analytics.used,
+                            " (created = ", analytics.created,
+                            ", discarded = ", analytics.discarded,
+                            ")"
+                    );
+                    System.err.println(message);
+                }
+
+                w(classDescriptor);
+                w(analytics.created);
+                w(analytics.used);
+                w(analytics.discarded);
+                w(classDescriptor.isRaw());
+                w(classDescriptor.properties().is(TypeDescriptor.Properties.Property.FULL));
+                w(classDescriptor.properties().is(TypeDescriptor.Properties.Property.CONSTANT));
+                w(classDescriptor.argumentsCount());
+                w(classDescriptor.typeArgumentsCount());
+                wln(classDescriptor.capturedTypeArgumentsCount());
+            }
+        }
+
         private void write(Object obj) {
             try {
                 stream.write(obj.toString().getBytes(StandardCharsets.UTF_8));
@@ -116,53 +162,26 @@ final class Analytics {
             write("\n");
         }
 
-        private void logResult() {
-            logClassDescriptors();
-        }
-
-        private void logClassDescriptors() {
-            wln("####################################### CLASS DESCRIPTORS #######################################");
-            wln("Descriptor;Created;Used;Discarded;Raw;Full;Constant;Arguments Count;Type Arguments Count;Captured Arguments Count");
-
-            for (var it = CLASS_DESCRIPTORS.iterator(); it.hasNext(); ) {
-                var analytics = it.next();
-                var classDescriptor = analytics.descriptor;
-
-                if (analytics.created != analytics.used + analytics.discarded) {
-                    var message = Utils.join(
-                            classDescriptor,
-                            " ", analytics.created,
-                            " != ", analytics.used,
-                            " + ", analytics.discarded,
-                            " (= ", analytics.used + analytics.discarded, ")"
-                    );
-                    System.err.println(message);
-                }
-                w(classDescriptor);
-                w(analytics.created);
-                w(analytics.used);
-                w(analytics.discarded);
-                w(classDescriptor.isRaw());
-                w(classDescriptor.properties().is(TypeDescriptor.Properties.Property.FULL));
-                w(classDescriptor.properties().is(TypeDescriptor.Properties.Property.CONSTANT));
-                w(classDescriptor.argumentsCount());
-                w(classDescriptor.typeArgumentsCount());
-                wln(classDescriptor.capturedTypeArgumentsCount());
-            }
-        }
-
     }
 
     private static void registerShutdownHook() {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             var path = System.getProperty("genericsAnalyticsFile");
-            try (var outputStream = path == null ? System.out : Files.newOutputStream(Path.of(path))) {
-                var stream = new BufferedOutputStream(outputStream, BUFFER_SIZE);
-                synchronized (CLASS_DESCRIPTORS) {
-                    new Writer(stream).logResult();
+            synchronized (CLASS_DESCRIPTORS) {
+                if (path != null) {
+                    try (var stream = new BufferedOutputStream(Files.newOutputStream(Path.of(path)))) {
+                        synchronized (CLASS_DESCRIPTORS) {
+                            new Writer(stream).logResult();
+                        }
+                    } catch (IOException e) {
+                        // silently close
+                    }
+                } else {
+                    var stream = new BufferedOutputStream(System.out);
+                    synchronized (CLASS_DESCRIPTORS) {
+                        new Writer(stream).logResult();
+                    }
                 }
-            } catch (IOException e) {
-                // silently close
             }
         }));
     }
@@ -173,97 +192,14 @@ final class Analytics {
     }
 
     // We use custom equivalence to take props into account, which differs from the usual.
-
-    private static final Equivalence<ClassDescriptor> CLASS_DESCRIPTOR_EQUIVALENCE = new Equivalence<>() {
-        @Override
-        public int hash(ClassDescriptor obj) {
-            Utils.requireNonNull(obj);
-            var h = 1;
-            h = 31 * h + obj.type().hashCode();
-            h = 31 * h + obj.capturedTypeArgumentsStartIndex();
-            h = 31 * h + obj.properties().hashCode();
-            h = 31 * h + Utils.arrayHashCode(obj.arguments(), TYPE_DESCRIPTOR_EQUIVALENCE);
-            return h;
-        }
-
-        @Override
-        public boolean equals(ClassDescriptor obj, Object other) {
-            if (!(other instanceof ClassDescriptor classDescriptor)) return false;
-            return obj.type().equals(classDescriptor.type())
-                    && obj.capturedTypeArgumentsStartIndex() == classDescriptor.capturedTypeArgumentsStartIndex()
-                    && obj.properties().equals(classDescriptor.properties())
-                    && Utils.arrayEquals(obj.arguments(), classDescriptor.arguments(), TYPE_DESCRIPTOR_EQUIVALENCE);
-        }
-    };
-
-    private static final Equivalence<ArrayDescriptor> ARRAY_DESCRIPTOR_EQUIVALENCE = new Equivalence<>() {
-
-        @Override
-        public int hash(ArrayDescriptor obj) {
-            Utils.requireNonNull(obj);
-            return TYPE_DESCRIPTOR_EQUIVALENCE.hash(obj.componentType());
-        }
-
-        @Override
-        public boolean equals(ArrayDescriptor obj, Object other) {
-            Utils.requireNonNull(obj);
-            if (!(other instanceof ArrayDescriptor arrayDescriptor)) return false;
-            return TYPE_DESCRIPTOR_EQUIVALENCE.equals(obj.componentType(), arrayDescriptor.componentType());
-        }
-    };
-
-    private static final Equivalence<TypeDescriptor> TYPE_DESCRIPTOR_EQUIVALENCE = new Equivalence<>() {
-
-        @Override
-        public int hash(TypeDescriptor obj) {
-            Utils.requireNonNull(obj);
-            switch (obj) {
-                case ArrayDescriptor arrayDescriptor:
-                    return ARRAY_DESCRIPTOR_EQUIVALENCE.hash(arrayDescriptor);
-                case ClassDescriptor classDescriptor:
-                    return CLASS_DESCRIPTOR_EQUIVALENCE.hash(classDescriptor);
-                case ErasedClassDescriptor erasedClassDescriptor:
-                    return erasedClassDescriptor.hashCode();
-            }
-        }
-
-        @Override
-        public boolean equals(TypeDescriptor obj, Object other) {
-            Utils.requireNonNull(obj);
-            switch (obj) {
-                case ArrayDescriptor arrayDescriptor:
-                    return ARRAY_DESCRIPTOR_EQUIVALENCE.equals(arrayDescriptor, other);
-                case ClassDescriptor classDescriptor:
-                    return CLASS_DESCRIPTOR_EQUIVALENCE.equals(classDescriptor, other);
-                case ErasedClassDescriptor erasedClassDescriptor:
-                    return erasedClassDescriptor.equals(other);
-            }
-        }
-    };
-
-    private static final Equivalence<MethodDescriptor> METHOD_DESCRIPTOR_EQUIVALENCE = new Equivalence<>() {
-        @Override
-        public int hash(MethodDescriptor obj) {
-            Utils.requireNonNull(obj);
-            return Utils.arrayHashCode(obj.arguments(), TYPE_DESCRIPTOR_EQUIVALENCE);
-        }
-
-        @Override
-        public boolean equals(MethodDescriptor obj, Object other) {
-            Utils.requireNonNull(obj);
-            if (!(other instanceof MethodDescriptor methodDescriptor)) return false;
-            return Utils.arrayEquals(obj.arguments(), methodDescriptor.arguments(), TYPE_DESCRIPTOR_EQUIVALENCE);
-        }
-    };
-
     private static final HashMap<ClassDescriptor, DescriptorAnalytics<ClassDescriptor>> CLASS_DESCRIPTORS =
-            new HashMap<>(CLASS_DESCRIPTOR_EQUIVALENCE);
+            new HashMap<>();
 
     private static final HashMap<ArrayDescriptor, DescriptorAnalytics<ArrayDescriptor>> ARRAY_DESCRIPTORS =
-            new HashMap<>(ARRAY_DESCRIPTOR_EQUIVALENCE);
+            new HashMap<>();
 
     private static final HashMap<MethodDescriptor, DescriptorAnalytics<MethodDescriptor>> METHOD_DESCRIPTORS =
-            new HashMap<>(METHOD_DESCRIPTOR_EQUIVALENCE);
+            new HashMap<>();
 
     private static final Function<?, ?> TO_ANALYTICS = new Function<Object, DescriptorAnalytics<?>>() {
         @Override
@@ -272,8 +208,6 @@ final class Analytics {
             return new DescriptorAnalytics<>(input);
         }
     };
-
-    private static final int BUFFER_SIZE = 2 << 11;
 
     private Analytics() {
         throw new AssertionError();

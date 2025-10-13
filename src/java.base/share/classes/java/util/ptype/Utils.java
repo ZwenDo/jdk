@@ -80,7 +80,7 @@ final class Utils {
 
         @Override
         public boolean equals(Object obj, Object other) {
-            return Utils.equals(obj, obj);
+            return Utils.equals(obj, other);
         }
     };
 

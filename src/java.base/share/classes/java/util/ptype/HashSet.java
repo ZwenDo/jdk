@@ -66,43 +66,6 @@ final class HashSet<E> {
         }
     }
 
-    /// Safety: Called must ensure that for any `x` of type `E` the invariant
-    /// `tEquivalence.equal(element, x) == equivalence.equal(mapper.apply(element), x)` is respected.
-    <T> E computeIfAbsent(T element, Equivalence<T> tEquivalence, Function<? super T, ? extends E> mapper) {
-        Utils.requireNonNull(element);
-        Utils.requireNonNull(mapper);
-        if (content.length <= size * 2) {
-            resize();
-            modCount++;
-        }
-
-        var hash = tEquivalence.hash(element) & (content.length - 1);
-        var bucket = content[hash];
-
-        if (bucket == null) {
-            var value = mapper.apply(element);
-            content[hash] = new Node<>(value);
-            size++;
-            modCount++;
-            return value;
-        }
-
-        var current = bucket;
-        while (true) {
-            if (equivalence.equals(current.value, element)) {
-                return current.value;
-            }
-            if (current.next == null) {
-                var value = mapper.apply(element);
-                current.next = new Node<>(value);
-                size++;
-                modCount++;
-                return value;
-            }
-            current = current.next;
-        }
-    }
-
     void addAll(HashSet<E> other) {
         Utils.requireNonNull(other);
         for (var it = other.iterator(); it.hasNext();) {
