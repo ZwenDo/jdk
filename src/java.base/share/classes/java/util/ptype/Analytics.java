@@ -9,6 +9,8 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Comparator;
 
 final class Analytics {
 
@@ -105,9 +107,15 @@ final class Analytics {
         private void logClassDescriptors() {
             wln("####################################### CLASS DESCRIPTORS #######################################");
             wln("Descriptor;Created;Used;Discarded;Raw;Full;Constant;Arguments Count;Type Arguments Count;Captured Arguments Count");
-
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            var array = (DescriptorAnalytics<ClassDescriptor>[]) new DescriptorAnalytics[CLASS_DESCRIPTORS.size()];
+            var i = 0;
             for (var it = CLASS_DESCRIPTORS.iterator(); it.hasNext(); ) {
-                var analytics = it.next();
+                array[i++] = it.next();
+            }
+            Arrays.sort(array, CLASS_DESCRIPTOR_COMPARATOR);
+
+            for (var analytics : array) {
                 var classDescriptor = analytics.descriptor;
 
                 if (analytics.created != analytics.used + analytics.discarded) {
@@ -191,7 +199,16 @@ final class Analytics {
         return (Function<T, DescriptorAnalytics<T>>) TO_ANALYTICS;
     }
 
-    // We use custom equivalence to take props into account, which differs from the usual.
+    private static final Comparator<DescriptorAnalytics<ClassDescriptor>> CLASS_DESCRIPTOR_COMPARATOR =
+            new Comparator<>() {
+                @Override
+                public int compare(DescriptorAnalytics<ClassDescriptor> o1, DescriptorAnalytics<ClassDescriptor> o2) {
+                    Utils.requireNonNull(o1);
+                    Utils.requireNonNull(o2);
+                    return o1.descriptor.toString().compareTo(o2.descriptor.toString());
+                }
+            };
+
     private static final HashMap<ClassDescriptor, DescriptorAnalytics<ClassDescriptor>> CLASS_DESCRIPTORS =
             new HashMap<>();
 

@@ -98,6 +98,7 @@ final class TypeDescriptorUtils {
         }
         builder.append('>');
     }
+
     private static void appendClassName(StringBuilder builder, Class<?> type) {
         var name = type.getSimpleName();
         if (!name.isEmpty()) {

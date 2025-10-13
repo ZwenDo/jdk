@@ -11,6 +11,10 @@ import java.util.Optional;
 /// Represents a class type.
 public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAccessor, DerivedClassDescriptor {
 
+    static {
+        System.out.println("Using the prototype.");
+    }
+
     //region fields
 
     @Stable
@@ -33,6 +37,9 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
 
     /// This field is used only once (and is a boolean) so we don't need the Stable annotation.
     private final boolean constant;
+
+    @Stable
+    private String asString;
 
     //endregion
 
@@ -327,7 +334,10 @@ public final class ClassDescriptor implements TypeDescriptor, TypeDescriptorAcce
 
     @Override
     public String toString() {
-        return TypeDescriptorUtils.stringify(this);
+        if (asString == null) {
+            asString = TypeDescriptorUtils.stringify(this);
+        }
+        return asString;
     }
 
     @Override

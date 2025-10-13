@@ -68,6 +68,10 @@ final class HashMap<K, V> {
         return size == 0;
     }
 
+    public int size() {
+        return size;
+    }
+
     /// Returns an iterator over the elements in the set. The elements are returned in no particular order.
     ///
     /// @return an iterator over the elements in the set
