@@ -24,7 +24,7 @@ final class HashMap<K, V> {
         this(Equivalence.natural());
     }
 
-    public HashMap(Equivalence<? super K> equivalence) {
+    HashMap(Equivalence<? super K> equivalence) {
         Utils.requireNonNull(equivalence);
         this.equivalence = equivalence;
     }
@@ -64,17 +64,10 @@ final class HashMap<K, V> {
         }
     }
 
-    public boolean isEmpty() {
-        return size == 0;
-    }
-
-    public int size() {
+    int size() {
         return size;
     }
 
-    /// Returns an iterator over the elements in the set. The elements are returned in no particular order.
-    ///
-    /// @return an iterator over the elements in the set
     Iterator<V> iterator() {
         return new Iterator<>() {
             private final int expectedModCount = modCount;

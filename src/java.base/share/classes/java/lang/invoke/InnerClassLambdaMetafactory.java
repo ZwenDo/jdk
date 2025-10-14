@@ -196,7 +196,6 @@ import sun.invoke.util.Wrapper;
                                !VerifyAccess.isSamePackage(targetClass, implInfo.getDeclaringClass())) ||
                                implKind == MethodHandleInfo.REF_invokeSpecial ||
                                implKind == MethodHandleInfo.REF_invokeStatic && implClass.isHidden();
-        this.constantSpecialisation = constantSpecialisation;
         int parameterCount = factoryType.parameterCount();
         ClassDesc[] argDescs;
         MethodTypeDesc constructorTypeDesc;
@@ -213,6 +212,7 @@ import sun.invoke.util.Wrapper;
         this.argDescs = argDescs;
         this.constructorTypeDesc = constructorTypeDesc;
         this.needsSpecialisation = needsSpecialisation;
+        this.constantSpecialisation = constantSpecialisation;
     }
 
     private static String argName(int i) {

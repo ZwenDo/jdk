@@ -65,6 +65,8 @@ public final class TransParameterizedTypes {
 
         public final Name objectTypeArgumentsFieldName = names.fromString("$typeArguments");
 
+        public final Name simpleCacheFieldName = names.fromString("$SIMPLE_CACHE");
+
         public final StaticMethod methodTypeArguments = new StaticMethod(
                 names.fromString("methodTypeArguments"),
                 symbols.typeDescriptorPassingHandlerType
@@ -168,6 +170,15 @@ public final class TransParameterizedTypes {
                 symbols.constantTypeDescriptorsType,
                 symbols.hiddenClassDescriptorType,
                 BootstrapMethod.Kind.CONDY
+        );
+
+        public final UnresolvedStaticField simpleCacheGetter = new UnresolvedStaticField(simpleCacheFieldName);
+
+        public final Constructor cacheConstructor = new Constructor(symbols.simpleCacheType);
+
+        public final InstanceMethod cacheGet = new InstanceMethod(
+                names.fromString("get"),
+                symbols.simpleCacheType
         );
 
         public final Symbol.OperatorSymbol objectEqOperator = operators
@@ -306,9 +317,11 @@ public final class TransParameterizedTypes {
         addAnnotations();
 
         try (var _ = typeParameterScopes.pushClassScope(descriptorField)) {
-            rewriteDefinitions();
-
             var currentClass = classContext.classSymbol();
+            if (hasCache(currentClass)) {
+                generateCacheField(currentClass);
+            }
+            rewriteDefinitions();
 
             // if we are parameterized or if the current class is plain but is under a generic interface
             if (
@@ -331,6 +344,10 @@ public final class TransParameterizedTypes {
                 var accessor = fieldAccessorInstanceMethod(fieldAccessorInstanceMethod);
                 tree.defs = tree.defs.prepend(accessor);
                 currentClass.members().enterIfAbsent(accessor.sym);
+            }
+
+            if (hasCache(currentClass)) {
+                generateCacheFieldNode(classContext.classTree());
             }
         } finally {
             classContext = oldClassContext;
@@ -394,6 +411,31 @@ public final class TransParameterizedTypes {
                 ),
                 owner
         );
+    }
+
+    private void generateCacheField(Symbol.ClassSymbol owner) {
+        var field = new Symbol.VarSymbol(
+                PUBLIC | STATIC | FINAL | optionalSynthetic(),
+                constantsHolder.simpleCacheFieldName,
+                symbols.simpleCacheType,
+                owner
+        );
+        owner.members().enterIfAbsent(field);
+    }
+
+    private void generateCacheFieldNode(JCTree.JCClassDecl owner) {
+        var field = (Symbol.VarSymbol) owner
+                .sym
+                .members()
+                .findFirst(constantsHolder.simpleCacheFieldName, f -> f.kind == Kinds.Kind.VAR);
+        if (field == null) {
+            throw new AssertionError("Cache field not found for class " + owner);
+        }
+        var fieldDeclaration = make.VarDef(
+                field,
+                constantsHolder.cacheConstructor.call(classLiteral(owner.type))
+        );
+        owner.defs = owner.defs.prepend(fieldDeclaration);
     }
 
     private void rewriteDefinitions() {
@@ -890,31 +932,17 @@ public final class TransParameterizedTypes {
             var captureStart = fullArguments.size();
             allParams(sym.owner.getEnclosingElement())
                     .forEach(p -> fullArguments.add(typeDescriptorFactory.createTypeDescriptor(p.type)));
-
-            // if encl is null, it means that all the types that need to be captured are in the current scopes.
-            // We can safely generate the literal for the type params.
-            // We check if the owner is an inner class, because an absence of encl usually just means that the class is
-            // not an inner class.
-//            if (
-//                    tree.encl == null
-//                            && (sym.owner.isInner() || sym.owner.isAnonymous())
-//                            && !sym.owner.isStatic()
-//                            && isParameterized(sym.owner)
-//            ) {
-//                allParams(sym.owner.getEnclosingElement())
-//                        .forEach(p -> fullArguments.add(typeDescriptorFactory.createTypeDescriptor(p.type)));
-//                // on the other hand, if there is an explicit encl, we need to look a all the enclosing classes' types to
-//                // to generate the captures that come from classes, and use the method type params of the enclosing methods
-//                // for the captures that come from methods.
-//            } else if (tree.encl != null && isParameterized(tree.encl.type.tsym)) {
-//                addExplicitEnclosingArguments(fullArguments, tree.type);
-//            }
-
             var args = fullArguments.toList();
 
-            var pushedValue = constantList(args)
-                    ? typeDescriptorFactory.constantClassDescriptor((Type.ClassType) sym.owner.type, args)
-                    : classDescriptorConstructorInvocation(sym.owner.type, args, captureStart);
+            var fullSize = args.size();
+            JCTree.JCExpression pushedValue;
+            if (constantList(args)) {
+                pushedValue = typeDescriptorFactory.constantClassDescriptor((Type.ClassType) sym.owner.type, args);
+            } else if (fullSize == 1) {
+                pushedValue = typeDescriptorFactory.classDescriptorFromSimpleCache((Type.ClassType) sym.owner.type, args.getFirst());
+            } else {
+                pushedValue = classDescriptorConstructorInvocation(sym.owner.type, args, captureStart);
+            }
 
             return constantsHolder.pushConstructor.call(pushedValue);
         }
@@ -1031,30 +1059,6 @@ public final class TransParameterizedTypes {
             return newArguments.toList();
         }
 
-        private void addExplicitEnclosingArguments(ListBuffer<JCTree.JCExpression> buffer, Type type) {
-            Symbol currentSymbol = type.getEnclosingType().tsym;
-            var currentType = type;
-
-            while (currentSymbol != null) {
-                switch (currentSymbol.kind) {
-                    case MTH -> currentSymbol
-                            .type
-                            .getTypeArguments()
-                            .forEach(t -> buffer.add(typeDescriptorFactory.createTypeDescriptor(t)));
-                    case TYP -> {
-                        currentType = currentType.getEnclosingType();
-                        currentType
-                                .getTypeArguments()
-                                .forEach(t -> buffer.add(typeDescriptorFactory.createTypeDescriptor(t)));
-                    }
-                    default -> {
-                        return;
-                    }
-                }
-                currentSymbol = currentSymbol.getEnclosingElement();
-            }
-        }
-
         private void handleCompilerIntrinsic(JCTree.JCMethodInvocation tree, Symbol.MethodSymbol sym) {
             if (!symbols.specializedTypeDescriptorType.equals(sym.owner.type)) return;
 
@@ -1130,8 +1134,12 @@ public final class TransParameterizedTypes {
 
             var constantArguments = constantList(args);
 
-            if (captureStart == fullArguments.size() && constantArguments) {
+            var fullSize = args.size();
+            if (captureStart == fullSize && constantArguments) {
                 return constantClassDescriptor(type, args);
+            }
+            if (fullSize == 1 && hasNewGenerics(type.tsym)) {
+                return classDescriptorFromSimpleCache(type, args.getFirst());
             }
 
             return classDescriptorConstructorInvocation(type, args, captureStart);
@@ -1201,6 +1209,15 @@ public final class TransParameterizedTypes {
             }
 
             return constantsHolder.constantClassDescriptorBsm.call(condyArgs.toList());
+        }
+
+        public JCTree.JCExpression classDescriptorFromSimpleCache(
+                Type.ClassType type,
+                JCTree.JCExpression argument
+        ) {
+            generateCacheField((Symbol.ClassSymbol) type.tsym);
+            var field = constantsHolder.simpleCacheGetter.access(type);
+            return constantsHolder.cacheGet.call(field, argument);
         }
 
         public JCTree.JCExpression rawClassDescriptor(Type.ClassType type) {
@@ -1711,7 +1728,7 @@ public final class TransParameterizedTypes {
         private final Name name;
         private final Type ownerType;
 
-        private StaticMethod(Name name, Type owner) {
+        public StaticMethod(Name name, Type owner) {
             this.name = name;
             this.ownerType = owner;
         }
@@ -1731,11 +1748,24 @@ public final class TransParameterizedTypes {
 
     }
 
+    private final class UnresolvedStaticField {
+        private final Name name;
+
+        public UnresolvedStaticField(Name name) {
+            this.name = name;
+        }
+
+        public JCTree.JCExpression access(Type owner) {
+            return externalFieldAccess(name, owner);
+        }
+
+    }
+
     private final class InstanceMethod {
         private final Name name;
         private final Type ownerType;
 
-        private InstanceMethod(Name name, Type ownerType) {
+        public InstanceMethod(Name name, Type ownerType) {
             this.name = name;
             this.ownerType = ownerType;
         }
@@ -1771,7 +1801,7 @@ public final class TransParameterizedTypes {
             CONDY,
         }
 
-        private BootstrapMethod(Name name, Type owner, Type expressionType, Kind kind) {
+        public BootstrapMethod(Name name, Type owner, Type expressionType, Kind kind) {
             this.name = name;
             this.ownerType = owner;
             this.expressionType = expressionType;
@@ -1845,6 +1875,39 @@ public final class TransParameterizedTypes {
 
     }
 
+    private final class Constructor {
+        private final Type ownerType;
+
+        public Constructor(Type owner) {
+            this.ownerType = owner;
+        }
+
+        public JCTree.JCNewClass call(List<JCTree.JCExpression> arguments) {
+            var constructor = resolve.resolveInternalConstructor(
+                    classContext.classTree(),
+                    classContext.env(),
+                    ownerType,
+                    arguments.map(e -> e.type),
+                    null
+            );
+            var call = make.NewClass(
+                    null,
+                    List.nil(),
+                    make.QualIdent(constructor),
+                    arguments,
+                    null
+            );
+            call.setType(ownerType);
+            call.constructor = constructor;
+            return call;
+        }
+
+        public JCTree.JCNewClass call(JCTree.JCExpression... arguments) {
+            return call(List.from(arguments));
+        }
+
+    }
+
     private JCTree.JCMethodInvocation externalMethodInvocation(
             Name name,
             Type site,
@@ -1876,6 +1939,20 @@ public final class TransParameterizedTypes {
         return call;
     }
 
+    private JCTree.JCExpression externalFieldAccess(Name name, Type site) {
+        Symbol.VarSymbol field;
+        try {
+            field = resolve.resolveInternalField(
+                    classContext.classTree(),
+                    classContext.env(),
+                    site,
+                    name
+            );
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+        return make.QualIdent(field);
+    }
 
     private JCTree.JCExpression classDescriptorConstructorInvocation(
             Type type,
@@ -1977,6 +2054,10 @@ public final class TransParameterizedTypes {
         nameOffsetIndex = (byte) (nameOffsetIndex < 99 ? nameOffsetIndex + 1 : 0);
         var actualPrefix = prefix != null ? prefix + "$" : "";
         return actualPrefix + String.format("%02d", offset);
+    }
+
+    private boolean hasCache(Symbol.ClassSymbol type) {
+        return allParams(type).size() == 1;
     }
 
     private static List<Symbol.TypeSymbol> getTypeArguments(Symbol sym) {

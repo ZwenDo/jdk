@@ -1489,12 +1489,6 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
         private ClassSymbol highestGenericClassInHierarchy;
         private boolean computedHierarchy = false;
 
-        private enum Foo {
-            UNSET,
-            COMPUTED_IS_IN_HIERARCHY,
-            COMPUTED_HIGHEST_GENERIC_IN_HIERARCHY,
-        }
-
         // sealed classes related fields
         /**
          * The classes, or interfaces, permitted to extend this class, or interface

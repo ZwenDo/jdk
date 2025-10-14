@@ -231,6 +231,7 @@ public class Symtab {
     public final Type optionalType;
     public final Type constantTypeDescriptorsType;
     public final Type superTypeMappingType;
+    public final Type simpleCacheType;
     public final Type instrumentedAnnotationType;
     public final Type prototypeInternalAnnotationType;
     public final Type nestedClassMetadataAnnotationType;
@@ -647,6 +648,7 @@ public class Symtab {
         optionalType = enterClass("java.util.Optional");
         constantTypeDescriptorsType = enterClass("java.util.ptype.ConstantTypeDescriptors");
         superTypeMappingType = enterClass("java.util.ptype.ComputeSuperFunction$SuperTypeMapping");
+        simpleCacheType = enterClass("java.util.ptype.SimpleDescriptorCache");
         instrumentedAnnotationType = enterClass("java.util.ptype.Instrumented");
         prototypeInternalAnnotationType = enterClass("java.util.ptype.PrototypeInternal");
         nestedClassMetadataAnnotationType = enterClass("java.util.ptype.NestedClassMetadata");
