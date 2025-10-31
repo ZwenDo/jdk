@@ -223,10 +223,10 @@ public final class TransParameterizedTypes {
     //endregion
 
     private boolean hasNewGenerics(Symbol.TypeSymbol clazz) {
-        return hasNewGenerics(clazz, symbols);
+        return hasNewGenerics(clazz, symbols, names);
     }
 
-    public static boolean hasNewGenerics(Symbol.TypeSymbol clazz, Symtab symbols) {
+    public static boolean hasNewGenerics(Symbol.TypeSymbol clazz, Symtab symbols, Names names) {
         Objects.requireNonNull(clazz);
         Objects.requireNonNull(symbols);
         if (clazz.specializationFlagInitialized()) {
@@ -279,7 +279,7 @@ public final class TransParameterizedTypes {
     private void rewriteClass(JCTree.JCClassDecl tree) {
         var oldClassContext = classContext;
 
-        var highestClassInGenericHierarchy = tree.sym.highestGenericClassInHierarchy(symbols);
+        var highestClassInGenericHierarchy = tree.sym.highestGenericClassInHierarchy(symbols, names);
         var isHighestClassInGenericHierarchy = tree.sym == highestClassInGenericHierarchy;
 
         Symbol.VarSymbol descriptorField = null;
@@ -930,8 +930,10 @@ public final class TransParameterizedTypes {
             var fullArguments = new ListBuffer<JCTree.JCExpression>();
             typeArguments.forEach(t -> fullArguments.add(typeDescriptorFactory.createTypeDescriptor(t)));
             var captureStart = fullArguments.size();
-            allParams(sym.owner.getEnclosingElement())
-                    .forEach(p -> fullArguments.add(typeDescriptorFactory.createTypeDescriptor(p.type)));
+            if (!sym.owner.isStatic()) {
+                allParams(sym.owner.getEnclosingElement())
+                        .forEach(p -> fullArguments.add(typeDescriptorFactory.createTypeDescriptor(p.type)));
+            }
             var args = fullArguments.toList();
 
             var fullSize = args.size();

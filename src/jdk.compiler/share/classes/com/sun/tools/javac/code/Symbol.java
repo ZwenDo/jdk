@@ -1551,34 +1551,34 @@ public abstract class Symbol extends AnnoConstruct implements PoolConstant, Elem
             }
         }
 
-        public ClassSymbol highestGenericClassInHierarchy(Symtab symbols) {
+        public ClassSymbol highestGenericClassInHierarchy(Symtab symbols, Names names) {
             Objects.requireNonNull(symbols);
             if (isInterface()) return null;
             if (!computedHierarchy) {
-                return computeHighestGenericClassInHierarchy(symbols);
+                return computeHighestGenericClassInHierarchy(symbols, names);
             }
             return highestGenericClassInHierarchy;
         }
 
-        private ClassSymbol computeHighestGenericClassInHierarchy(Symtab symbols) {
+        private ClassSymbol computeHighestGenericClassInHierarchy(Symtab symbols, Names names) {
             computedHierarchy = true;
-            if (!TransParameterizedTypes.hasNewGenerics(this, symbols)) return null;
+            if (!TransParameterizedTypes.hasNewGenerics(this, symbols, names)) return null;
             if (getSuperclass() != Type.noType) {
-                var sup = ((ClassSymbol) getSuperclass().tsym).computeHighestGenericClassInHierarchy(symbols);
+                var sup = ((ClassSymbol) getSuperclass().tsym).computeHighestGenericClassInHierarchy(symbols, names);
                 if (sup != null) {
                     highestGenericClassInHierarchy = sup;
                     return sup;
                 }
             }
-            return highestGenericClassInHierarchy = genericOrGenericInterface(symbols) ? this : null;
+            return highestGenericClassInHierarchy = genericOrGenericInterface(symbols, names) ? this : null;
         }
 
-        private boolean genericOrGenericInterface(Symtab symbols) {
+        private boolean genericOrGenericInterface(Symtab symbols, Names names) {
             if (TransParameterizedTypes.isParameterized(this)) return true;
             for (var superInterface : getInterfaces()) {
                 var superInterfaceSymbol = ((ClassSymbol) superInterface.tsym);
-                if (!TransParameterizedTypes.hasNewGenerics(superInterfaceSymbol, symbols)) continue;
-                var genericSuperInterface = superInterfaceSymbol.computeHighestGenericClassInHierarchy(symbols);
+                if (!TransParameterizedTypes.hasNewGenerics(superInterfaceSymbol, symbols, names)) continue;
+                var genericSuperInterface = superInterfaceSymbol.computeHighestGenericClassInHierarchy(symbols, names);
                 if (genericSuperInterface != null) {
                     return true;
                 }
